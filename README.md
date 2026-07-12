@@ -13,6 +13,7 @@
 3. **（要用 Telegram bot 的話）Telegram bot token**：
    - Telegram 搜尋 `@BotFather` → 傳 `/newbot` → 照指示取名 → 拿到一組 `123456:ABC-xxxxxxxx` 格式的 token。
    - 之後在 Telegram 找到你剛建立的 bot，按「開始」或傳 `/start` 給它，才能開始跟它聊天。
+   - **強烈建議設定白名單**，不然任何人只要知道這個 bot 的用戶名都能傳訊息觸發分類，見下面「限制 Telegram 使用者」。
 4. **（要丟 Notion 頁面連結的話）Playwright 瀏覽器核心**：`npm install` 之後多跑一次 `npx playwright install chromium`（見下面「安裝步驟」）。不丟 Notion 連結的話可以跳過，其他網址不受影響。
 
 ## 安裝步驟
@@ -94,6 +95,21 @@
 
 CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON）時，那一則內容會回傳錯誤訊息，不會生成筆記，可以直接重送一次。
 
+## 限制 Telegram 使用者
+
+Telegram bot 預設沒有身分驗證，只要知道 bot 的用戶名，任何人都能傳訊息給它、觸發分類、寫進你的 vault。用 `.env` 的 `TELEGRAM_ALLOWED_USER_IDS` 設定白名單就能擋掉：
+
+1. 先照上面步驟啟動 bot（`TELEGRAM_ALLOWED_USER_IDS` 先留空）。這時候終端機會印出一行警告，提醒你目前任何人都能用。
+2. 在 Telegram 傳 `/whoami` 或 `/id` 給你的 bot，它會回覆你的 Telegram user ID（一串數字）。
+3. 把這個 ID 填進 `.env` 的 `TELEGRAM_ALLOWED_USER_IDS`，例如：
+   ```
+   TELEGRAM_ALLOWED_USER_IDS=123456789
+   ```
+   要開放給多人用，用逗號分隔多個 ID：`TELEGRAM_ALLOWED_USER_IDS=123456789,987654321`
+4. 重新 `npm start`。之後只有清單裡的 user ID 能傳訊息給 bot；不在清單裡的人傳訊息會收到一句「你沒有權限」的回覆（同時附上他們自己的 user ID，不會處理內容、也不會寫進你的 vault）。
+
+沒有設定白名單的話，每次啟動都會在終端機看到警告，提醒你目前是完全公開的狀態。
+
 ## 讀取 Notion 頁面
 
 Notion 是重度 JS 渲染的網頁，plain fetch 抓到的只是空殼，所以丟 Notion 連結（`notion.so` / `*.notion.site`）進來時，`extractContent.js` 會自動改用 Playwright 開一個無頭 Chromium 把頁面真正渲染出來，再抓畫面上的文字，其他網址不受影響、還是走原本輕量的 fetch + Readability。
@@ -101,9 +117,15 @@ Notion 是重度 JS 渲染的網頁，plain fetch 抓到的只是空殼，所以
 限制：
 
 - **只能讀「已經用 Notion『分享到網路』功能公開」的頁面**。需要登入才能看的私人頁面，Playwright 會看到登入畫面而不是真正內容，程式偵測到抓到的文字太少時會直接回報失敗，不會生出一篇內容是登入畫面的筆記。
-- 第一次用之前要記得跑過 `npx playwright install chromium`（見上面安裝步驟），不然會顯示錯誤訊息提醒你補裝。
+- 第一次用之前要記得跑過 `npx playwright install chromium`（見上面安裝步驟），不然會顯示錯誤訊息提醒你補裝。這個指令預設會連完整版 Chromium 一起裝（不只是精簡的 headless shell），程式會優先用完整版，相容性比較好。
 - 比一般網址慢一些（要開瀏覽器渲染），單則處理時間大概多個幾秒。
 - 如果你的 Notion 頁面其實是自己的、常常會丟進來，之後也可以改成用 Notion 官方 API（申請 integration token）讀取，會更快更穩定，只是需要多一道申請/授權設定，目前先用 Playwright 這個不用額外申請的版本。
+
+想單獨測試抓不抓得到，不用開整個 bot、也不會呼叫 AI 或寫進 vault：
+```bash
+node scripts/test-notion.js https://你的-notion-頁面網址
+```
+成功會印出標題和內文預覽，失敗會告訴你原因（通常是頁面沒公開分享，或還沒跑 `npx playwright install chromium`）。
 
 ## 已知限制
 

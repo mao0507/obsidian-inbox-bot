@@ -23,6 +23,16 @@ export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-5";
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 export const PORT = Number(process.env.PORT || 3838);
 
+// Telegram 白名單：只有這些 user ID 可以傳訊息給 bot、收到 bot 的回覆。
+// .env 用逗號分隔多個 ID，例如 TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
+// 留空 = 不限制（任何人都能用，見 bot.js 啟動時的警告）。
+export const TELEGRAM_ALLOWED_USER_IDS = (process.env.TELEGRAM_ALLOWED_USER_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .map(Number)
+  .filter((n) => Number.isFinite(n));
+
 // 常見 agent CLI 的預設非互動參數（不含最後的短指令，那個由 classifyViaCli.js 加）。
 // 可以用 .env 的 AGENT_CLI_ARGS 完全覆蓋（用空白分隔），不管是哪種 CLI 都能自訂。
 const KNOWN_CLI_PRESETS = {
