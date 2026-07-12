@@ -56,6 +56,13 @@ export function startBot() {
 
     const processingMsg = await ctx.reply("🔎 收到，處理中...");
 
+    // Telegram 的「正在輸入...」動畫大概只會維持約 5 秒就自動消失，
+    // Notion 頁面這種長時間處理（可能到 20~30 秒）要每隔幾秒重送一次才會全程顯示。
+    await ctx.sendChatAction("typing").catch(() => {});
+    const typingTimer = setInterval(() => {
+      ctx.sendChatAction("typing").catch(() => {});
+    }, 4000);
+
     try {
       const { draft, result } = await processIncomingContent(text, "telegram");
       await ctx.telegram.editMessageText(
@@ -81,6 +88,8 @@ export function startBot() {
         undefined,
         `❌ 處理失敗：${String(err?.message || err)}`
       );
+    } finally {
+      clearInterval(typingTimer);
     }
   });
 
