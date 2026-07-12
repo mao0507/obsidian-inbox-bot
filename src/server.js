@@ -11,6 +11,9 @@ export function startServer() {
   app.use(express.json({ limit: "2mb" }));
   app.use(express.static(path.join(__dirname, "..", "public")));
 
+  // 純粹消除瀏覽器自動要 favicon 造成的 404 雜訊，沒有其他作用。
+  app.get("/favicon.ico", (req, res) => res.status(204).end());
+
   app.post("/api/submit", async (req, res) => {
     try {
       const { content } = req.body || {};

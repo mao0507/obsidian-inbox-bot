@@ -1,11 +1,12 @@
-import { TAXONOMY, RULES, renderTaxonomyTree } from "./taxonomy.js";
+import { FLAT_CATEGORIES, NESTED_TAXONOMY, RULES, renderTaxonomyTree } from "./taxonomy.js";
 
-export const VALID_FOLDERS = Object.entries(TAXONOMY).flatMap(([top, subs]) =>
-  subs.map((s) => `${top}/${s}`)
-);
+export const VALID_FOLDERS = [
+  ...FLAT_CATEGORIES,
+  ...Object.entries(NESTED_TAXONOMY).flatMap(([top, subs]) => subs.map((s) => `${top}/${s}`)),
+];
 
 const JSON_SCHEMA_DESC = `{
-  "folder": string，必須是下面樹狀結構中「已存在」的完整路徑（例如 "01 Knowledge/Vue"）,
+  "folder": string，必須是下面清單中「已存在」的路徑（扁平資料夾直接填資料夾本身，例如 "01 Knowledge"；有子資料夾的填完整路徑，例如 "06 AI/提示詞庫"）,
   "filename": string，檔名（不含副檔名 .md）,
   "title": string，筆記標題,
   "tags": string[]，3~6 個主題標籤，不含 # 符號,
@@ -17,7 +18,7 @@ const JSON_SCHEMA_DESC = `{
 export function buildSystemPrompt(sourceChannel) {
   return `你是使用者的 Obsidian 知識庫管家。使用者會透過 Telegram 或網頁表單丟內容給你（網址、文章、程式碼片段、bug 記錄、想法等），你要判斷分類、補齊缺漏資訊，整理成一篇乾淨的筆記。
 
-這是使用者 vault 的資料夾樹狀結構，只能選擇裡面已存在的路徑：
+這是使用者 vault 目前的資料夾分類清單，只能選擇裡面已存在的路徑（有些是扁平資料夾、有些有子資料夾，見下面標註）：
 ${renderTaxonomyTree()}
 
 ${RULES}

@@ -56,12 +56,15 @@
 
 分類完成後，直接去 Obsidian 打開對應資料夾，就會看到新筆記（如果 Obsidian 正開著，會自動偵測到新檔案）。
 
-## 分類規則怎麼調整
+## 分類架構
 
 打開 `src/taxonomy.js`：
 
-- `TAXONOMY`：資料夾樹狀結構，照你目前 vault 的 00 Inbox / 01 Knowledge / 02 Projects / 03 Snippets / 04 Bugs / 05 Learning / Assets 設定好了。要加新技術分類（例如 `01 Knowledge` 底下加 `Python`），直接在陣列裡加一行字串即可，不用改其他程式碼。
-- `RULES`：文字描述的分類規則，可以照自己習慣改寫，Claude 會照這份規則判斷。
+- `FLAT_CATEGORIES`：`01 Knowledge`、`03 Snippets`、`04 Bugs` 這三個是**扁平資料夾**，不分技術子資料夾——筆記直接放進資料夾本身，技術用 tags 標註（例如一篇筆記可以同時貼 `Vue` 和 `TypeScript`）。這是為了解決「內容橫跨兩個技術時，樹狀子資料夾逼你只能二選一」的問題：以前 `01 Knowledge/Vue` 和 `01 Knowledge/TypeScript` 分開，一篇同時講兩者的筆記只能塞一邊；現在都在 `01 Knowledge` 底下，靠 tags 區分。
+- `NESTED_TAXONOMY`：其餘分類（`00 Inbox`、`02 Projects`、`05 Learning`、`06 AI`、`Assets`）維持樹狀子資料夾，因為這些子分類彼此互斥（一篇筆記通常明確屬於某個專案、某種學習類型），不會有跨分類的問題。要加新子分類，直接在對應陣列裡加一行字串即可，不用改其他程式碼。
+- `RULES`：文字描述的分類規則，可以照自己習慣改寫，AI 會照這份規則判斷。
+
+`06 AI` 是獨立於 `05 Learning` 之外的頂層分類，AI 相關內容（工具教學、提示詞庫、新聞動態、工具比較）都會被分到這裡，而不是混進一般的 `05 Learning/文章整理`。
 
 改完存檔、重新 `npm start` 即可生效。
 
