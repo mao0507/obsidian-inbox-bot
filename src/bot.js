@@ -86,7 +86,18 @@ export function startBot() {
 
   bot.catch((err) => console.error("[telegram] bot error", err));
 
-  bot.launch();
+  bot.launch().catch((err) => {
+    if (err?.response?.error_code === 409) {
+      console.error(
+        "[telegram] ❌ 啟動失敗：Telegram 說已經有另一個程式在用同一個 bot token 收訊息了" +
+          "（error 409 Conflict）。這代表電腦上還有別的 npm start / node 在跑同一支 bot，" +
+          "常見情況是另一個終端機視窗還開著沒關。請把其他跑這支 bot 的程式都關掉，再重新啟動這一個。" +
+          "Telegram bot 這部分目前沒有運作，但網頁版不受影響。"
+      );
+      return;
+    }
+    console.error("[telegram] bot 啟動失敗", err);
+  });
   console.log("[telegram] bot 已啟動（polling 模式）");
 
   process.once("SIGINT", () => bot.stop("SIGINT"));

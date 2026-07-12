@@ -117,7 +117,7 @@ async function fetchNotionViaPlaywright(url) {
     // 只等 DOM 骨架載入完成，不等網路閒置（Notion 的常駐連線會讓 networkidle 永遠等不到）。
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
 
-    const text = await waitForStableText(page, { maxWaitMs: 15000, pollMs: 500, minLength: 40 });
+    const text = await waitForStableText(page, { maxWaitMs: 25000, pollMs: 500, minLength: 40 });
     const title = (await page.title()) || "";
 
     await browser.close();
