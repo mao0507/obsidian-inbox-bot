@@ -1,0 +1,37 @@
+import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { PORT } from "./config.js";
+import { processIncomingContent } from "./pipeline.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export function startServer() {
+  const app = express();
+  app.use(express.json({ limit: "2mb" }));
+  app.use(express.static(path.join(__dirname, "..", "public")));
+
+  app.post("/api/submit", async (req, res) => {
+    try {
+      const { content } = req.body || {};
+      const { draft, result } = await processIncomingContent(content, "web");
+      res.json({
+        ok: true,
+        folder: draft.folder,
+        filename: path.basename(result.relativePath),
+        relativePath: result.relativePath,
+        title: draft.title,
+        tags: draft.tags,
+        summary: draft.summary,
+        reasoning: draft.reasoning,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ ok: false, error: String(err?.message || err) });
+    }
+  });
+
+  app.listen(PORT, () => {
+    console.log(`[web] 打開 http://localhost:${PORT} 開始丟內容`);
+  });
+}

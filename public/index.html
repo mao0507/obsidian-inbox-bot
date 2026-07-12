@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Obsidian Inbox</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    max-width: 640px;
+    margin: 48px auto;
+    padding: 0 20px;
+    line-height: 1.6;
+  }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  p.hint { color: #888; margin-top: 0; }
+  textarea {
+    width: 100%;
+    min-height: 160px;
+    padding: 12px;
+    font-size: 15px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    box-sizing: border-box;
+    resize: vertical;
+  }
+  button {
+    margin-top: 12px;
+    padding: 10px 20px;
+    font-size: 15px;
+    border-radius: 8px;
+    border: none;
+    background: #4a4a8f;
+    color: white;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #result {
+    margin-top: 24px;
+    padding: 16px;
+    border-radius: 8px;
+    background: rgba(127,127,127,0.1);
+    display: none;
+    white-space: pre-wrap;
+  }
+  #result.error { background: rgba(220,53,69,0.12); }
+  .tag {
+    display: inline-block;
+    background: rgba(74,74,143,0.15);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 13px;
+    margin: 2px 4px 2px 0;
+  }
+</style>
+</head>
+<body>
+  <h1>📥 Obsidian Inbox</h1>
+  <p class="hint">貼上文字、想法或網址，會自動分類整理進你的 Obsidian vault。</p>
+
+  <textarea id="content" placeholder="貼上網址或文字內容..."></textarea>
+  <br />
+  <button id="submitBtn" onclick="submitContent()">送出</button>
+
+  <div id="result"></div>
+
+  <script>
+    async function submitContent() {
+      const content = document.getElementById('content').value.trim();
+      const btn = document.getElementById('submitBtn');
+      const result = document.getElementById('result');
+      if (!content) return;
+
+      btn.disabled = true;
+      btn.textContent = '整理中...';
+      result.style.display = 'block';
+      result.className = '';
+      result.textContent = 'Claude 正在讀取內容並分類，稍等幾秒...';
+
+      try {
+        const res = await fetch('/api/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || '未知錯誤');
+
+        result.innerHTML = `
+          <strong>✅ 已存檔</strong><br/>
+          標題：${data.title}<br/>
+          資料夾：${data.folder}<br/>
+          檔名：${data.filename}<br/>
+          摘要：${data.summary || ''}<br/>
+          ${(data.tags || []).map(t => `<span class="tag">#${t}</span>`).join('')}
+        `;
+        document.getElementById('content').value = '';
+      } catch (err) {
+        result.className = 'error';
+        result.textContent = '❌ 發生錯誤：' + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '送出';
+      }
+    }
+  </script>
+</body>
+</html>

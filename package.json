@@ -1,0 +1,22 @@
+{
+  "name": "obsidian-inbox-bot",
+  "version": "1.0.0",
+  "description": "Web UI + Telegram bot that classifies incoming content with Claude and files it into an Obsidian vault",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@mozilla/readability": "^0.5.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "jsdom": "^25.0.1",
+    "playwright": "^1.61.1",
+    "telegraf": "^4.16.3"
+  }
+}
