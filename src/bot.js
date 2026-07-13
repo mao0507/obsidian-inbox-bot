@@ -8,6 +8,13 @@ function isAllowed(userId) {
   return TELEGRAM_ALLOWED_USER_IDS.includes(userId);
 }
 
+function formatGitStatusLine(gitResult) {
+  if (!gitResult || !gitResult.attempted) return null; // 沒設定 VAULT_GIT_REMOTE，不顯示這行
+  if (gitResult.pushed) return "🔄 已同步到 Git";
+  if (gitResult.skipped) return null; // 沒有新異動可 commit，沒什麼好講的
+  return `⚠️ Git 同步失敗：${gitResult.error || "未知錯誤"}（筆記已正常存進 Obsidian，只是還沒推上 git）`;
+}
+
 export function startBot() {
   if (!TELEGRAM_BOT_TOKEN) {
     console.log("[telegram] 沒有設定 TELEGRAM_BOT_TOKEN，略過啟動 Telegram bot");
@@ -64,7 +71,7 @@ export function startBot() {
     }, 4000);
 
     try {
-      const { draft, result } = await processIncomingContent(text, "telegram");
+      const { draft, result, gitResult } = await processIncomingContent(text, "telegram");
       await ctx.telegram.editMessageText(
         ctx.chat.id,
         processingMsg.message_id,
@@ -76,6 +83,7 @@ export function startBot() {
           `檔名：${result.relativePath}`,
           draft.summary ? `摘要：${draft.summary}` : null,
           draft.tags?.length ? draft.tags.map((t) => `#${t}`).join(" ") : null,
+          formatGitStatusLine(gitResult),
         ]
           .filter(Boolean)
           .join("\n")

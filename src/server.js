@@ -17,7 +17,7 @@ export function startServer() {
   app.post("/api/submit", async (req, res) => {
     try {
       const { content } = req.body || {};
-      const { draft, result } = await processIncomingContent(content, "web");
+      const { draft, result, gitResult } = await processIncomingContent(content, "web");
       res.json({
         ok: true,
         folder: draft.folder,
@@ -27,6 +27,9 @@ export function startServer() {
         tags: draft.tags,
         summary: draft.summary,
         reasoning: draft.reasoning,
+        git: gitResult?.attempted
+          ? { pushed: !!gitResult.pushed, skipped: !!gitResult.skipped, error: gitResult.error || null }
+          : null,
       });
     } catch (err) {
       console.error(err);

@@ -122,6 +122,35 @@ npm run dev
 
 CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON）時，那一則內容會回傳錯誤訊息，不會生成筆記，可以直接重送一次。
 
+## 自動同步筆記到 Git（選用）
+
+想讓 vault 裡的筆記自動備份/同步到你自己的 git repo（GitHub、GitLab、自架 Gitea 都可以），設定 `.env` 的：
+
+```
+VAULT_GIT_REMOTE=https://github.com/your-name/obsidian-vault.git
+VAULT_GIT_BRANCH=main
+```
+
+設定好、重啟程式之後：
+
+- 之後每次透過 Telegram/網頁新增一篇筆記，寫入本機 vault 完成後，程式會自動 `git add -A` + `git commit` + `git push` 到這個 remote。因為每次都是 `add -A`，如果你在兩次新增筆記之間手動在 Obsidian 裡搬移、改名、刪除了其他筆記，那些異動也會一起被帶上去。
+- 第一次同步時，如果 vault 資料夾還不是 git repo，程式會自動幫你 `git init`、建一個忽略 Obsidian 本機狀態檔的 `.gitignore`（`.obsidian/workspace.json` 等）、加上 `remote origin`。
+- 每次 push 前會先嘗試 `git pull --rebase`，避免你同時在別的裝置（例如手機用 Obsidian Git 外掛）也有改動時整包 push 失敗。
+- Telegram 回覆、網頁結果都會多一行同步狀態：🔄 已同步到 Git，或是同步失敗時顯示錯誤原因（筆記本身一定已經正常存進本機 vault，git 同步失敗不影響這件事）。
+
+**帳號認證**：這支程式是背景執行、不會跳出視窗讓你輸入帳號密碼，所以 push 用的認證要先在電腦上設定好：
+
+- 用 HTTPS 網址：Windows 上通常搭配 [Git Credential Manager](https://github.com/git-ecosystem/git-credential-manager) 就會自動記住登入，第一次可以手動在終端機對這個 repo 做一次 `git push` 讓它跳出登入視窗、之後就會快取。
+- 用 SSH 網址（`git@github.com:...`）：電腦要先產生 SSH key 並加到 GitHub/GitLab 帳號，確認 `ssh -T git@github.com` 之類的指令能成功連線不用密碼。
+
+如果認證沒設定好，push 會直接失敗並把錯誤訊息印在終端機（不會卡住整個程式），筆記還是會正常留在本機。
+
+**手動同步**：如果你直接在 Obsidian 裡改了東西、不想等下一篇新筆記才順便同步，可以手動跑：
+
+```
+npm run vault:sync
+```
+
 ## 限制 Telegram 使用者
 
 Telegram bot 預設沒有身分驗證，只要知道 bot 的用戶名，任何人都能傳訊息給它、觸發分類、寫進你的 vault。用 `.env` 的 `TELEGRAM_ALLOWED_USER_IDS` 設定白名單就能擋掉：
@@ -179,7 +208,11 @@ obsidian-inbox-bot/
     ├── classifyViaApi.js   走 Anthropic API + tool-use 做分類
     ├── classifyViaCli.js   走本機 agent CLI（如 claude -p）做分類
     ├── writeNote.js        寫入 .md 檔到 vault
+    ├── gitSync.js           筆記寫入後自動 commit + push 到 VAULT_GIT_REMOTE（選用）
     ├── pipeline.js         串起以上流程，web/telegram 共用
     ├── server.js           Express 網頁伺服器
     └── bot.js              Telegram bot
+
+scripts/
+  └── git-sync.js            手動觸發一次 vault git 同步（npm run vault:sync）
 ```

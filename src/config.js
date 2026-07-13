@@ -108,3 +108,15 @@ console.log(
 export function vaultFilePath(...segments) {
   return path.join(VAULT_PATH, ...segments);
 }
+
+// Git 自動同步：設定 VAULT_GIT_REMOTE 後，每次新增/搬移筆記都會自動
+// commit + push 到這個 remote。沒設定就完全不啟用，行為跟以前一樣。
+export const VAULT_GIT_REMOTE = process.env.VAULT_GIT_REMOTE || "";
+export const VAULT_GIT_BRANCH = process.env.VAULT_GIT_BRANCH || "main";
+export const VAULT_GIT_ENABLED = Boolean(VAULT_GIT_REMOTE);
+
+console.log(
+  VAULT_GIT_ENABLED
+    ? `[git-sync] 已啟用，筆記異動會自動同步到 ${VAULT_GIT_REMOTE}（分支 ${VAULT_GIT_BRANCH}）`
+    : "[git-sync] 沒有設定 VAULT_GIT_REMOTE，筆記只會寫入本機 vault，不會同步到 git"
+);
