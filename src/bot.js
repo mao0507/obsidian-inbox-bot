@@ -22,6 +22,28 @@ function formatEagleStatusLine(eagleResult) {
   return `⚠️ Eagle 圖片同步失敗：${eagleResult.error || "未知錯誤"}（筆記已正常存進 Obsidian，只是圖片沒進 Eagle）`;
 }
 
+function formatEagleGitStatusLine(eagleGitResult) {
+  if (!eagleGitResult || !eagleGitResult.attempted) return null; // 沒設定 EAGLE_GIT_REMOTE 或這篇沒有圖片，不顯示這行
+  if (eagleGitResult.pushed) {
+    const failedNote = eagleGitResult.failed ? `，${eagleGitResult.failed} 張下載失敗` : "";
+    return `📦 已備份 ${eagleGitResult.downloaded} 張圖片到 Eagle 圖片 git${failedNote}`;
+  }
+  if (eagleGitResult.skipped) return null; // 沒有新異動可 commit
+  return `⚠️ Eagle 圖片備份到 git 失敗：${eagleGitResult.error || "未知錯誤"}`;
+}
+
+function formatEmbedStatusLine(embedResult) {
+  if (!embedResult) return null;
+  const filenames = embedResult.filenames || [];
+  const failed = embedResult.failed || 0;
+  if (filenames.length === 0 && failed === 0) return null; // 沒有圖片可內嵌，不顯示這行
+  if (filenames.length > 0) {
+    const failedNote = failed ? `，${failed} 張下載失敗` : "";
+    return `🖼️ 已內嵌 ${filenames.length} 張圖片到筆記${failedNote}`;
+  }
+  return `⚠️ 圖片內嵌失敗（${failed} 張全部下載失敗）`;
+}
+
 // 幫處理中的訊息掛上持續的「正在輸入...」動畫，回傳一個 stop() 可以在處理完後呼叫清掉計時器。
 function startTypingLoop(ctx) {
   ctx.sendChatAction("typing").catch(() => {});
@@ -115,7 +137,10 @@ export function startBot() {
     const stopTyping = startTypingLoop(ctx);
 
     try {
-      const { draft, result, gitResult, eagleResult } = await processIncomingContent(text, "telegram");
+      const { draft, result, gitResult, eagleResult, eagleGitResult, embedResult } = await processIncomingContent(
+        text,
+        "telegram"
+      );
       await ctx.telegram.editMessageText(
         ctx.chat.id,
         processingMsg.message_id,
@@ -127,7 +152,9 @@ export function startBot() {
           `檔名：${result.relativePath}`,
           draft.summary ? `摘要：${draft.summary}` : null,
           draft.tags?.length ? draft.tags.map((t) => `#${t}`).join(" ") : null,
+          formatEmbedStatusLine(embedResult),
           formatEagleStatusLine(eagleResult),
+          formatEagleGitStatusLine(eagleGitResult),
           formatGitStatusLine(gitResult),
         ]
           .filter(Boolean)

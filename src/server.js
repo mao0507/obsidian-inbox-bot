@@ -17,7 +17,10 @@ export function startServer() {
   app.post("/api/submit", async (req, res) => {
     try {
       const { content } = req.body || {};
-      const { draft, result, gitResult, eagleResult } = await processIncomingContent(content, "web");
+      const { draft, result, gitResult, eagleResult, eagleGitResult, embedResult } = await processIncomingContent(
+        content,
+        "web"
+      );
       res.json({
         ok: true,
         folder: draft.folder,
@@ -33,6 +36,22 @@ export function startServer() {
         eagle: eagleResult?.attempted
           ? { synced: !!eagleResult.synced, count: eagleResult.count || 0, error: eagleResult.error || null }
           : null,
+        eagleGit: eagleGitResult?.attempted
+          ? {
+              pushed: !!eagleGitResult.pushed,
+              skipped: !!eagleGitResult.skipped,
+              downloaded: eagleGitResult.downloaded || 0,
+              failed: eagleGitResult.failed || 0,
+              error: eagleGitResult.error || null,
+            }
+          : null,
+        embed:
+          embedResult && ((embedResult.filenames && embedResult.filenames.length > 0) || embedResult.failed)
+            ? {
+                count: embedResult.filenames?.length || 0,
+                failed: embedResult.failed || 0,
+              }
+            : null,
       });
     } catch (err) {
       console.error(err);

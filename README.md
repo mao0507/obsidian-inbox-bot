@@ -148,6 +148,35 @@ EAGLE_ENABLED=true
 - 一篇文章完全沒有圖片、或圖片被判斷是裝飾用小圖（icon/logo 之類）時，不會呼叫 Eagle，也不會在 Eagle 裡建空資料夾。
 - `eagle://item/...` 深連結指到的是「剛剛匯入的那幾筆」，判斷方式是抓該 Eagle 資料夾裡最新建立的幾筆——如果你在存筆記的同一瞬間剛好也手動在 Eagle 裡匯入東西到同一個資料夾，連結可能會對不準（機率很低，正常使用不會遇到）。
 
+### 圖片再備份一份到你自己的 git repo
+
+上面那個是把圖片交給 Eagle App 處理，跟 Eagle 本身有沒有開著綁在一起。如果你想要「不管 Eagle 開不開，只要文章有抓到圖片就把圖片檔案本身存進一個我自己的 git repo」，這是另一件獨立的事，兩個可以都開、只開一個，或都不開。
+
+設定 `.env`（`VAULT_GIT_REMOTE` 的圖片版，用法完全一樣）：
+
+```
+EAGLE_GIT_REMOTE=https://github.com/your-name/eagle-images.git
+```
+
+設定好、重啟程式之後：
+
+1. 文章裡抓到的圖片網址，這支程式會自己下載下來（不需要 Eagle App、不透過 Eagle 的 API），存到本機一個資料夾（預設是 vault 同一層的 `Eagle Images` 資料夾，可以用 `EAGLE_IMAGES_PATH` 改成別的路徑），並依照跟 Obsidian 一樣的分類路徑建立同構的子資料夾（例如 `Eagle Images/07 旅遊/日本/北海道/`）。
+2. 存好之後自動 `git add -A` + commit + push 到 `EAGLE_GIT_REMOTE`。第一次會自動 `git init` 這個資料夾、建立 remote，行為跟 `VAULT_GIT_REMOTE` 那套完全一樣（同一套底層邏輯），包括 push 前會先 `pull --rebase` 避免落後遠端被拒絕、認證方式一樣要先在電腦上設定好（Git Credential Manager 或 SSH key），沒設定好會直接失敗並印錯誤，不會卡住整支程式。
+3. 個別圖片下載失敗（連不到、404、檔案超過 20MB）不會讓整批失敗，會跳過那張繼續處理其他張，最後一起 commit。
+4. Telegram 回覆、網頁結果會多一行狀態：📦 已備份 N 張圖片到 Eagle 圖片 git，或失敗原因。
+
+**限制**：跟上面一樣，完全沒有圖片時不會做任何事；圖片網址一定要能公開下載到（不支援需要登入才能看的圖）。
+
+### 圖片直接內嵌在筆記正文裡
+
+只要 `EAGLE_ENABLED` 或 `EAGLE_GIT_ENABLED` 有開一個（不需要兩個都開），文章裡抓到的圖片除了上面的處理之外，還會額外下載一份到 vault 裡跟筆記本身同一個資料夾，並在筆記正文最後加上一段「## 圖片」，用 Obsidian 的 `![[檔名]]` 內嵌語法把圖片直接嵌進去——打開筆記就能直接看到圖，不用點連結、不用另外開 Eagle App。
+
+這跟「## 相關圖片（Eagle）」是兩段不同的東西，會同時出現在同一篇筆記裡：內嵌那段是給你打開筆記直接看圖用的，Eagle 連結那段是給你想跳去 Eagle App 裡整理標籤用的。
+
+不想要圖片實體存進 vault 資料夾（例如 vault 也有另外同步到雲端、不想佔空間），把 `EAGLE_ENABLED` 和 `EAGLE_GIT_ENABLED` 都設成 `false` 或不設定就好，這個內嵌功能就不會動作。
+
+Telegram 回覆、網頁結果會多一行狀態：🖼️ 已內嵌 N 張圖片到筆記，或失敗原因。
+
 ## 從已收錄的筆記查詢資料（/ask）
 
 不是要新增筆記，而是想問「我之前存過的東西裡有沒有相關資料」，在 Telegram 用：
@@ -252,9 +281,13 @@ obsidian-inbox-bot/
     ├── classify.js         依 CLASSIFIER_MODE 分派給 API 版或 CLI 版
     ├── classifyViaApi.js   走 Anthropic API + tool-use 做分類
     ├── classifyViaCli.js   走本機 agent CLI（如 claude -p）做分類
-    ├── eagleSync.js          把文中圖片匯入 Eagle、依分類建同構資料夾（選用）
-    ├── writeNote.js        寫入 .md 檔到 vault（含 Eagle 圖片連結）
-    ├── gitSync.js           筆記寫入後自動 commit + push 到 VAULT_GIT_REMOTE（選用）
+    ├── imageDownload.js      下載圖片、決定副檔名/檔名的共用邏輯（eagleImageArchive.js、imageEmbed.js 共用）
+    ├── eagleSync.js          把文中圖片匯入 Eagle App、依分類建同構資料夾（選用）
+    ├── eagleImageArchive.js  下載文中圖片、備份到獨立的 EAGLE_GIT_REMOTE（選用，不需要 Eagle App）
+    ├── imageEmbed.js         下載文中圖片進 vault 筆記所在資料夾，供 ![[檔名]] 內嵌顯示（選用）
+    ├── writeNote.js        寫入 .md 檔到 vault（含內嵌圖片、Eagle 圖片連結）
+    ├── gitSyncFactory.js     「某資料夾自動 commit+push 到某 remote」的共用邏輯
+    ├── gitSync.js           筆記寫入後自動 commit + push 到 VAULT_GIT_REMOTE（選用，底層用 gitSyncFactory.js）
     ├── noteIndex.js         讀取 vault 所有筆記、關鍵字比對找出相關筆記（給 /ask 用）
     ├── askAi.js              呼叫本機 CLI 或 API 做純文字問答（不是結構化分類）
     ├── askVault.js           整合 noteIndex + askAi，處理 /ask 的完整流程
