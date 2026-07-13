@@ -6,10 +6,11 @@ export const VALID_FOLDERS = [
 ];
 
 const JSON_SCHEMA_DESC = `{
-  "folder": string，必須是下面清單中「已存在」的路徑（扁平資料夾直接填資料夾本身，例如 "01 Knowledge"；有子資料夾的填完整路徑，例如 "06 AI/提示詞庫"）,
+  "folder": string，多數情況必須是下面清單中「已存在」的路徑（扁平資料夾直接填資料夾本身，例如 "01 Knowledge"；有子資料夾的填完整路徑，例如 "06 AI/提示詞庫"）。
+    例外是「07 旅遊」這種動態分類：自己依文章內容判斷組成 "07 旅遊/國家/城市或地區"（繁體中文，例如 "07 旅遊/日本/北海道"）,
   "filename": string，檔名（不含副檔名 .md）,
   "title": string，筆記標題,
-  "tags": string[]，3~6 個主題標籤，不含 # 符號,
+  "tags": string[]，3~6 個主題標籤，不含 # 符號、不能有空白（例如要寫 "ClaudeCode" 不要寫 "Claude Code"，多個單字直接連在一起或用連字號）,
   "summary": string，一到兩句話摘要,
   "reasoning": string，簡短說明為什麼分到這個資料夾,
   "body": string，Markdown 格式的筆記正文（不含 frontmatter）

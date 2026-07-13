@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { AGENT_CLI_COMMAND, AGENT_CLI_ARGS } from "./config.js";
-import { VALID_FOLDERS, buildCliPrompt, CLI_SHORT_INSTRUCTION } from "./promptBuilder.js";
+import { buildCliPrompt, CLI_SHORT_INSTRUCTION } from "./promptBuilder.js";
+import { isValidFolder } from "./taxonomy.js";
 
 const TIMEOUT_MS = 120_000;
 
@@ -106,8 +107,8 @@ export async function classifyViaCli({ rawText, fetched, sourceChannel }) {
     }
   }
 
-  if (!VALID_FOLDERS.includes(payload.folder)) {
-    console.warn(`[classifier] CLI 選了不在清單裡的資料夾「${payload.folder}」，改放進 00 Inbox/待整理`);
+  if (!isValidFolder(payload.folder)) {
+    console.warn(`[classifier] CLI 選了不合法的資料夾「${payload.folder}」，改放進 00 Inbox/待整理`);
     payload.folder = "00 Inbox/待整理";
   }
 

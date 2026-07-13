@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ANTHROPIC_API_KEY, CLAUDE_MODEL } from "./config.js";
 import { VALID_FOLDERS, buildSystemPrompt, buildUserPrompt } from "./promptBuilder.js";
+import { isValidFolder } from "./taxonomy.js";
 
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
@@ -13,8 +14,10 @@ const FILE_NOTE_TOOL = {
     properties: {
       folder: {
         type: "string",
-        enum: VALID_FOLDERS,
-        description: "這篇筆記要放進哪個資料夾，必須是清單中已存在的路徑",
+        description:
+          `這篇筆記要放進哪個資料夾。多數情況必須是下面清單中已存在的路徑之一：${VALID_FOLDERS.join("、")}。` +
+          `例外是動態分類「07 旅遊」：沒有固定子資料夾清單，請自己依文章描述的地區組成 "07 旅遊/國家/城市或地區"` +
+          `（繁體中文，例如 "07 旅遊/日本/北海道"、"07 旅遊/台灣/台中"），地區不明確時不要用這個分類。`,
       },
       filename: {
         type: "string",
@@ -24,7 +27,7 @@ const FILE_NOTE_TOOL = {
       tags: {
         type: "array",
         items: { type: "string" },
-        description: "3~6 個主題標籤，不含 # 符號",
+        description: "3~6 個主題標籤，不含 # 符號、不能有空白（例如要寫 \"ClaudeCode\" 不要寫 \"Claude Code\"）",
       },
       summary: { type: "string", description: "一到兩句話摘要，會放進 frontmatter" },
       reasoning: { type: "string", description: "簡短說明為什麼分到這個資料夾" },
@@ -51,5 +54,11 @@ export async function classifyViaApi({ rawText, fetched, sourceChannel }) {
   if (!toolUse) {
     throw new Error("Claude 沒有回傳預期的分類結果，請重試一次");
   }
-  return toolUse.input;
+
+  const payload = toolUse.input;
+  if (!isValidFolder(payload.folder)) {
+    console.warn(`[classifier] API 選了不合法的資料夾「${payload.folder}」，改放進 00 Inbox/待整理`);
+    payload.folder = "00 Inbox/待整理";
+  }
+  return payload;
 }

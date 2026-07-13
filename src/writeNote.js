@@ -22,6 +22,16 @@ function yamlEscape(str) {
   return str;
 }
 
+// Obsidian 的 tag 不能含空白（有空白會被判定成無效標籤，UI 上會用刪除線顯示）。
+// AI 有時候還是會生成像 "Claude Code" 這種含空白的 tag，這裡強制拿掉空白當最後防線，
+// 例如 "Claude Code" -> "ClaudeCode"。
+function sanitizeTag(tag) {
+  return String(tag)
+    .replace(/^#/, "")
+    .trim()
+    .replace(/\s+/g, "");
+}
+
 function buildFrontmatter({ title, tags, summary, sources, sourceChannel, reasoning }) {
   const lines = ["---"];
   lines.push(`title: ${yamlEscape(title)}`);
@@ -36,7 +46,10 @@ function buildFrontmatter({ title, tags, summary, sources, sourceChannel, reason
   lines.push(`via: ${sourceChannel}`);
   lines.push(`summary: ${yamlEscape(summary || "")}`);
   lines.push("tags:");
-  for (const t of tags || []) lines.push(`  - ${String(t).replace(/^#/, "")}`);
+  for (const t of tags || []) {
+    const clean = sanitizeTag(t);
+    if (clean) lines.push(`  - ${clean}`);
+  }
   lines.push("status: 已整理");
   if (reasoning) lines.push(`classify_note: ${yamlEscape(reasoning)}`);
   lines.push("---");

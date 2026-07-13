@@ -17,6 +17,18 @@ export const NESTED_TAXONOMY = {
   "Assets": ["Images", "PDF"],
 };
 
+// DYNAMIC_TAXONOMY：子資料夾不是固定清單，而是 AI 依內容動態決定，
+// 只規定固定的階層深度與每一層代表什麼。
+// 例如「07 旅遊」依文章描述的地區建立「國家/城市或地區」兩層資料夾，
+// 不需要（也不可能）事先把所有國家城市都列在清單裡。
+export const DYNAMIC_TAXONOMY = {
+  "07 旅遊": {
+    depth: 2,
+    levelNames: ["國家", "城市或地區"],
+    hint: '依文章主要描述的地區判斷，用繁體中文，例如 "07 旅遊/台灣/台中"、"07 旅遊/日本/北海道"。地區不明確時不要用這個分類，改回 00 Inbox/待整理。',
+  },
+};
+
 // 規則說明，會原封不動放進 system prompt 給 AI 判斷用
 export const RULES = `
 分類規則：
@@ -32,10 +44,14 @@ export const RULES = `
   - 多個 AI 工具的比較、選型評估 → 06 AI/工具比較
 - 非 AI 的書籍筆記、課程筆記、一般文章整理/心得 → 05 Learning 對應子資料夾
 - 圖片、PDF 等純附件 → Assets
+- 旅遊相關內容（遊記、景點、行程規劃、美食、住宿心得等）→ 07 旅遊，這是動態分類，
+  folder 請自己組成 "07 旅遊/國家/城市或地區"（依文章主要描述的地區判斷，用繁體中文），
+  不要用清單裡沒列出的固定名稱去猜、也不要只填到 "07 旅遊" 這一層。
+  如果文章沒有明確的地區資訊，不要用這個分類，改回 00 Inbox/待整理。
 - 內容不完整、判斷不出明確分類、或使用者只丟了一個連結沒有說明意圖 → 00 Inbox/待整理
 - 使用者丟的是想法/靈感片段（沒有連結、很短、偏個人思考）→ 00 Inbox/靈感
 - 使用者明確說「先記一下」「之後再看」等 → 00 Inbox/暫時紀錄
-- 只能選擇下面清單中「已存在」的資料夾，不要自己發明新資料夾名稱。
+- 除了「07 旅遊」這種動態分類外，只能選擇下面清單中「已存在」的資料夾，不要自己發明新資料夾名稱。
   如果真的完全不合適，一律回退到 00 Inbox/待整理。
 `;
 
@@ -46,5 +62,35 @@ export function renderTaxonomyTree() {
   const nestedLines = Object.entries(NESTED_TAXONOMY).map(
     ([top, subs]) => `- ${top}\n${subs.map((s) => `  - ${top}/${s}`).join("\n")}`
   );
-  return [...flatLines, ...nestedLines].join("\n");
+  const dynamicLines = Object.entries(DYNAMIC_TAXONOMY).map(
+    ([top, cfg]) =>
+      `- ${top}（動態分類，沒有固定子資料夾清單，folder 自己組成 "${top}/${cfg.levelNames.join("/")}"。${cfg.hint}）`
+  );
+  return [...flatLines, ...nestedLines, ...dynamicLines].join("\n");
+}
+
+// 判斷 folder 是不是合法路徑：
+// - 扁平分類：完全等於清單中的資料夾本身
+// - 樹狀分類：完全等於 "頂層/子資料夾" 且子資料夾在清單裡
+// - 動態分類：以 "頂層/" 開頭，且後面的階層數剛好等於規定的 depth、每一層都非空白
+export function isValidFolder(folder) {
+  if (typeof folder !== "string" || !folder.trim()) return false;
+
+  if (FLAT_CATEGORIES.includes(folder)) return true;
+
+  for (const [top, subs] of Object.entries(NESTED_TAXONOMY)) {
+    if (subs.some((s) => folder === `${top}/${s}`)) return true;
+  }
+
+  for (const [top, cfg] of Object.entries(DYNAMIC_TAXONOMY)) {
+    if (folder.startsWith(`${top}/`)) {
+      const rest = folder
+        .slice(top.length + 1)
+        .split("/")
+        .filter((seg) => seg.trim().length > 0);
+      if (rest.length === cfg.depth) return true;
+    }
+  }
+
+  return false;
 }
