@@ -76,6 +76,22 @@
 
 改完存檔、重新 `npm start` 即可生效。
 
+## 開發模式（自動重啟）
+
+改程式碼後不想每次手動關掉再重開終端機，開發時用：
+
+```
+npm run dev
+```
+
+這是用 Node 內建的 `--watch`（`node --watch src/index.js`），`src/` 底下任何檔案存檔都會自動重啟整個程式（web server + Telegram bot 一起重開），不用額外裝套件。缺點：
+
+- 重啟的瞬間 Telegram bot 會斷線再重連，處理到一半的訊息可能要重送。
+- 跟平常一樣，同一時間只能跑一個（另開一個 `npm run dev` 或 `npm start` 會撞成 Telegram 409 Conflict，見下面「限制 Telegram 使用者」前的說明）。
+- 需要 Node 18.11 以上（`node --version` 確認）。
+
+正式使用（不是在改程式碼）還是用 `npm start`，沒有監看檔案的額外負擔。
+
 ## 保持背景執行（選用）
 
 不想一直開著終端機視窗的話：
