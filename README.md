@@ -61,14 +61,18 @@
 打開 `src/taxonomy.js`：
 
 - `FLAT_CATEGORIES`：`01 Knowledge`、`03 Snippets`、`04 Bugs` 這三個是**扁平資料夾**，不分技術子資料夾——筆記直接放進資料夾本身，技術用 tags 標註（例如一篇筆記可以同時貼 `Vue` 和 `TypeScript`）。這是為了解決「內容橫跨兩個技術時，樹狀子資料夾逼你只能二選一」的問題：以前 `01 Knowledge/Vue` 和 `01 Knowledge/TypeScript` 分開，一篇同時講兩者的筆記只能塞一邊；現在都在 `01 Knowledge` 底下，靠 tags 區分。
-- `NESTED_TAXONOMY`：其餘分類（`00 Inbox`、`02 Projects`、`05 Learning`、`06 AI`、`Assets`）維持樹狀子資料夾，因為這些子分類彼此互斥（一篇筆記通常明確屬於某個專案、某種學習類型），不會有跨分類的問題。要加新子分類，直接在對應陣列裡加一行字串即可，不用改其他程式碼。
-- `DYNAMIC_TAXONOMY`：子資料夾不是固定清單，而是 AI 依內容動態決定，只規定階層深度。目前只有 `07 旅遊` 一個：AI 會依文章描述的地區自己組成「國家/城市或地區」兩層資料夾，例如 `07 旅遊/台灣/台中`、`07 旅遊/日本/北海道`，不用事先把所有國家城市列出來。地區不明確時會退回 `00 Inbox/待整理`，不會亂猜。要加新的動態分類，在 `DYNAMIC_TAXONOMY` 裡加一個 key，設定 `depth`（要幾層）和 `levelNames`（每層代表什麼）即可。
+- `NESTED_TAXONOMY`：其餘分類（`00 Inbox`、`02 Projects`、`Assets`）維持樹狀子資料夾，因為這些子分類彼此互斥，不會有跨分類的問題。要加新子分類，直接在對應陣列裡加一行字串即可，不用改其他程式碼。
+- `DYNAMIC_TAXONOMY`：至少有一層子資料夾不是固定清單、由 AI 依內容動態決定。每個分類用 `levels` 陣列描述每一層是 `fixed`（固定選項清單）還是 `free`（AI 自己取名），目前有三個：
+  - `07 旅遊`：兩層都是 `free`，依文章描述的地區組成「國家/城市或地區」，例如 `07 旅遊/台灣/台中`、`07 旅遊/日本/北海道`。地區不明確時退回 `00 Inbox/待整理`。
+  - `06 AI`：第一層 `free`（工具名稱，例如 `ClaudeCode`、`Cursor`、`OpenAI`），第二層 `fixed`（`提示詞庫`/`教學文章`/`新聞動態`/`工具比較`），例如 `06 AI/ClaudeCode/教學文章`。橫跨多個工具或講產業整體的內容，工具名稱層會填 `綜合`。
+  - `05 Learning`：第一層 `fixed`（`書籍`/`課程`/`文章整理`），第二層 `free`（主題或書名），例如 `05 Learning/書籍/原子習慣`。
+  要加新的動態分類，在 `DYNAMIC_TAXONOMY` 裡加一個 key，照格式設定 `levels` 和 `hint` 即可。
 - `RULES`：文字描述的分類規則，可以照自己習慣改寫，AI 會照這份規則判斷。
-- `isValidFolder(folder)`：驗證 AI 回傳的 folder 是否合法（扁平/樹狀分類要完全對上清單，動態分類只檢查階層數對不對）。分類邏輯（`classifyViaApi.js`、`classifyViaCli.js`）都會用這個驗證，不合法就自動退回 `00 Inbox/待整理`。
+- `isValidFolder(folder)`：驗證 AI 回傳的 folder 是否合法（扁平/樹狀分類要完全對上清單，動態分類檢查階層數與每層的 fixed/free 規則）。分類邏輯（`classifyViaApi.js`、`classifyViaCli.js`）都會用這個驗證，不合法就自動退回 `00 Inbox/待整理`。
 
-`06 AI` 是獨立於 `05 Learning` 之外的頂層分類，AI 相關內容（工具教學、提示詞庫、新聞動態、工具比較）都會被分到這裡，而不是混進一般的 `05 Learning/文章整理`。
+`06 AI` 是獨立於 `05 Learning` 之外的頂層分類，AI 相關內容（工具教學、提示詞庫、新聞動態、工具比較）都會被分到這裡，而不是混進一般的 `05 Learning`。
 
-`07 旅遊` 是動態分類，跟其他固定分類不一樣：不用先在 `taxonomy.js` 裡列出國家城市，AI 會依內容自己建立對應的子資料夾。
+動態分類（`06 AI`、`05 Learning`、`07 旅遊`）裡由 AI 自訂的那一層，不用先在 `taxonomy.js` 裡把所有可能值列出來，AI 會依內容自己建立對應的子資料夾。為了避免同一個工具/主題/地區每次被取成不同的名稱變體（例如 `ClaudeCode` 跟 `Claude Code` 分開兩個資料夾），`src/vaultScan.js` 每次分類前會先掃描 vault 裡動態分類已經存在的名稱，放進 prompt 讓 AI 優先重複使用既有名稱。
 
 改完存檔、重新 `npm start` 即可生效。
 
@@ -152,6 +156,7 @@ obsidian-inbox-bot/
     ├── index.js          啟動進入點（同時開 web server + telegram bot）
     ├── config.js         讀取 .env、檢查設定
     ├── taxonomy.js        分類規則（可自行調整）
+    ├── vaultScan.js        掃描動態分類既有名稱，維持 AI 命名一致
     ├── extractContent.js  抓網頁、抽正文
     ├── promptBuilder.js    組出給 API/CLI 共用的 prompt 內容
     ├── classify.js         依 CLASSIFIER_MODE 分派給 API 版或 CLI 版

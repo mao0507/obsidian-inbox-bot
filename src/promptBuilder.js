@@ -1,4 +1,5 @@
 import { FLAT_CATEGORIES, NESTED_TAXONOMY, RULES, renderTaxonomyTree } from "./taxonomy.js";
+import { getDynamicFolderExamples } from "./vaultScan.js";
 
 export const VALID_FOLDERS = [
   ...FLAT_CATEGORIES,
@@ -6,8 +7,8 @@ export const VALID_FOLDERS = [
 ];
 
 const JSON_SCHEMA_DESC = `{
-  "folder": string，多數情況必須是下面清單中「已存在」的路徑（扁平資料夾直接填資料夾本身，例如 "01 Knowledge"；有子資料夾的填完整路徑，例如 "06 AI/提示詞庫"）。
-    例外是「07 旅遊」這種動態分類：自己依文章內容判斷組成 "07 旅遊/國家/城市或地區"（繁體中文，例如 "07 旅遊/日本/北海道"）,
+  "folder": string，多數情況必須是清單中「已存在」的固定路徑（扁平資料夾直接填資料夾本身，例如 "01 Knowledge"；有子資料夾的填完整路徑，例如 "00 Inbox/待整理"）。
+    例外是動態分類（06 AI、05 Learning、07 旅遊）：其中一層或兩層由你依內容判斷組成，詳見 system prompt 裡的分類清單與「動態分類目前已有名稱」,
   "filename": string，檔名（不含副檔名 .md）,
   "title": string，筆記標題,
   "tags": string[]，3~6 個主題標籤，不含 # 符號、不能有空白（例如要寫 "ClaudeCode" 不要寫 "Claude Code"，多個單字直接連在一起或用連字號）,
@@ -17,11 +18,13 @@ const JSON_SCHEMA_DESC = `{
 }`;
 
 export function buildSystemPrompt(sourceChannel) {
+  const dynamicExamples = getDynamicFolderExamples();
+
   return `你是使用者的 Obsidian 知識庫管家。使用者會透過 Telegram 或網頁表單丟內容給你（網址、文章、程式碼片段、bug 記錄、想法等），你要判斷分類、補齊缺漏資訊，整理成一篇乾淨的筆記。
 
-這是使用者 vault 目前的資料夾分類清單，只能選擇裡面已存在的路徑（有些是扁平資料夾、有些有子資料夾，見下面標註）：
+這是使用者 vault 目前的資料夾分類清單，只能選擇裡面已存在的路徑（有些是扁平資料夾、有些有固定子資料夾、有些是動態分類，見下面標註）：
 ${renderTaxonomyTree()}
-
+${dynamicExamples ? `\n動態分類目前已有名稱（同一個工具/主題/地區優先重複使用這些既有名稱，不要創造新的相似變體）：\n${dynamicExamples}\n` : ""}
 ${RULES}
 
 寫筆記時的原則：
