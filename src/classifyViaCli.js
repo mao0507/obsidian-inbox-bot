@@ -34,9 +34,11 @@ function runCli(command, args, input) {
   });
 }
 
-// 從輸出裡把 JSON 物件抓出來：先試著整段當 JSON 解析，
-// 失敗的話再用「第一個 { 到最後一個 }」的方式抓，容忍 CLI 多印了說明文字或 code fence。
-function extractJsonObject(text) {
+// 從一段文字裡把 JSON 物件抓出來：先試著整段當 JSON 解析，
+// 失敗的話再用「第一個 { 到最後一個 }」的方式抓，容忍前後多印了說明文字或 code fence。
+// 抓不到就回傳 null（不丟例外），讓呼叫端可以繼續往下一種方式嘗試。
+function tryExtractJsonObject(text) {
+  if (typeof text !== "string") return null;
   const trimmed = text.trim();
   try {
     return JSON.parse(trimmed);
@@ -45,10 +47,17 @@ function extractJsonObject(text) {
   }
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
-    throw new Error("在 CLI 輸出裡找不到 JSON 物件");
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(trimmed.slice(start, end + 1));
+  } catch {
+    return null;
   }
-  return JSON.parse(trimmed.slice(start, end + 1));
+}
+
+// 判斷解析出來的物件是不是真的長得像我們要的分類結果（而不是外層包裝本身）。
+function looksLikeClassifyResult(obj) {
+  return !!obj && typeof obj === "object" && "folder" in obj && "body" in obj;
 }
 
 export async function classifyViaCli({ rawText, fetched, sourceChannel }) {
@@ -63,21 +72,37 @@ export async function classifyViaCli({ rawText, fetched, sourceChannel }) {
 
   const raw = await runCli(AGENT_CLI_COMMAND, args, fullPrompt);
 
-  let payload;
-  try {
-    const envelope = JSON.parse(raw.trim());
-    // claude / cursor-agent 的 --output-format json 都會包成
-    // { type, subtype, is_error, result, session_id, ... }，實際內容在 result 欄位裡。
-    payload = typeof envelope.result === "string" ? extractJsonObject(envelope.result) : envelope;
-  } catch {
-    // 不是預期的 envelope 格式，就把整個輸出當成可能含 JSON 的純文字處理
-    payload = extractJsonObject(raw);
+  // 依序嘗試幾種可能的輸出形狀，取第一個「看起來真的是分類結果」的：
+  // 1. claude / cursor-agent 的 --output-format json 外層包裝，實際內容在 result 欄位（字串）裡
+  // 2. CLI 沒包外層、直接印出目標 JSON
+  // 3. 目標 JSON 混在其他文字（例如外層包裝本身）裡，退而求其次整段暴力擷取
+  let payload = null;
+
+  const envelope = tryExtractJsonObject(raw);
+  if (envelope && typeof envelope.result === "string") {
+    payload = tryExtractJsonObject(envelope.result);
+  }
+  if (!looksLikeClassifyResult(payload) && envelope && looksLikeClassifyResult(envelope)) {
+    payload = envelope;
+  }
+  if (!looksLikeClassifyResult(payload)) {
+    payload = tryExtractJsonObject(raw);
+  }
+
+  if (!looksLikeClassifyResult(payload)) {
+    console.error(`[classifier] CLI（${AGENT_CLI_COMMAND}）原始輸出（解析失敗，完整內容如下）：\n${raw}`);
+    throw new Error(
+      `CLI（${AGENT_CLI_COMMAND}）沒有回傳可用的分類結果，原始輸出前 300 字：${raw.slice(0, 300)}`
+    );
   }
 
   const required = ["folder", "filename", "title", "tags", "summary", "body"];
   for (const key of required) {
     if (!(key in payload)) {
-      throw new Error(`CLI（${AGENT_CLI_COMMAND}）回傳的 JSON 缺少欄位「${key}」`);
+      console.error(`[classifier] CLI（${AGENT_CLI_COMMAND}）原始輸出：\n${raw}`);
+      throw new Error(
+        `CLI（${AGENT_CLI_COMMAND}）回傳的 JSON 缺少欄位「${key}」，解析到的物件：${JSON.stringify(payload).slice(0, 300)}`
+      );
     }
   }
 
