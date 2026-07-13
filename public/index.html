@@ -93,6 +93,12 @@
           else if (!data.git.skipped) gitLine = `<br/>⚠️ Git 同步失敗：${data.git.error || '未知錯誤'}`;
         }
 
+        let eagleLine = '';
+        if (data.eagle) {
+          if (data.eagle.synced) eagleLine = `<br/>🖼️ 已存 ${data.eagle.count} 張圖片到 Eagle`;
+          else eagleLine = `<br/>⚠️ Eagle 圖片同步失敗：${data.eagle.error || '未知錯誤'}`;
+        }
+
         result.innerHTML = `
           <strong>✅ 已存檔</strong><br/>
           標題：${data.title}<br/>
@@ -100,6 +106,7 @@
           檔名：${data.filename}<br/>
           摘要：${data.summary || ''}<br/>
           ${(data.tags || []).map(t => `<span class="tag">#${t}</span>`).join('')}
+          ${eagleLine}
           ${gitLine}
         `;
         document.getElementById('content').value = '';

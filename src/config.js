@@ -120,3 +120,15 @@ console.log(
     ? `[git-sync] 已啟用，筆記異動會自動同步到 ${VAULT_GIT_REMOTE}（分支 ${VAULT_GIT_BRANCH}）`
     : "[git-sync] 沒有設定 VAULT_GIT_REMOTE，筆記只會寫入本機 vault，不會同步到 git"
 );
+
+// Eagle 圖片管理整合：設定 EAGLE_ENABLED=true 後，文章裡的圖片會自動匯入 Eagle
+// （Eagle app 要在同一台電腦上開著），並在 Eagle 裡建立跟 Obsidian 一樣的分類資料夾結構。
+// 預設關閉——沒裝 Eagle 的人完全不受影響。
+export const EAGLE_ENABLED = (process.env.EAGLE_ENABLED || "").toLowerCase() === "true";
+export const EAGLE_BASE_URL = process.env.EAGLE_BASE_URL || "http://localhost:41595";
+
+console.log(
+  EAGLE_ENABLED
+    ? `[eagle-sync] 已啟用，文章裡的圖片會自動匯入 Eagle（${EAGLE_BASE_URL}）`
+    : "[eagle-sync] 沒有啟用 EAGLE_ENABLED，文章圖片不會匯入 Eagle"
+);

@@ -16,6 +16,12 @@ function formatGitStatusLine(gitResult) {
   return `⚠️ Git 同步失敗：${gitResult.error || "未知錯誤"}（筆記已正常存進 Obsidian，只是還沒推上 git）`;
 }
 
+function formatEagleStatusLine(eagleResult) {
+  if (!eagleResult || !eagleResult.attempted) return null; // 沒啟用 Eagle 或這篇沒有圖片，不顯示這行
+  if (eagleResult.synced) return `🖼️ 已存 ${eagleResult.count} 張圖片到 Eagle`;
+  return `⚠️ Eagle 圖片同步失敗：${eagleResult.error || "未知錯誤"}（筆記已正常存進 Obsidian，只是圖片沒進 Eagle）`;
+}
+
 // 幫處理中的訊息掛上持續的「正在輸入...」動畫，回傳一個 stop() 可以在處理完後呼叫清掉計時器。
 function startTypingLoop(ctx) {
   ctx.sendChatAction("typing").catch(() => {});
@@ -109,7 +115,7 @@ export function startBot() {
     const stopTyping = startTypingLoop(ctx);
 
     try {
-      const { draft, result, gitResult } = await processIncomingContent(text, "telegram");
+      const { draft, result, gitResult, eagleResult } = await processIncomingContent(text, "telegram");
       await ctx.telegram.editMessageText(
         ctx.chat.id,
         processingMsg.message_id,
@@ -121,6 +127,7 @@ export function startBot() {
           `檔名：${result.relativePath}`,
           draft.summary ? `摘要：${draft.summary}` : null,
           draft.tags?.length ? draft.tags.map((t) => `#${t}`).join(" ") : null,
+          formatEagleStatusLine(eagleResult),
           formatGitStatusLine(gitResult),
         ]
           .filter(Boolean)

@@ -56,11 +56,35 @@ function buildFrontmatter({ title, tags, summary, sources, sourceChannel, reason
   return lines.join("\n");
 }
 
+// 把 Eagle 同步回來的 eagle://item/<id> 深連結整理成一段 Markdown，附在筆記正文最後，
+// 這樣打開筆記就能直接點回 Eagle 裡對應的圖片。沒有連結（Eagle 沒啟用/沒圖片/同步失敗）就不加這一段。
+function buildEagleSection(eagleImages) {
+  if (!eagleImages || eagleImages.length === 0) return "";
+  const lines = ["## 相關圖片（Eagle）", ""];
+  eagleImages.forEach((link, i) => {
+    lines.push(`- [圖片 ${i + 1}](${link})`);
+  });
+  return `\n\n${lines.join("\n")}`;
+}
+
 /**
  * 把 classify() 的結果寫成 .md 檔到 vault 對應資料夾。
  * 檔名重複時自動加上流水號，絕不覆蓋既有筆記。
+ * eagleImages（選用）：syncImagesToEagle() 回傳的 eagle://item/<id> 深連結陣列，
+ * 有的話會附加在筆記正文最後。
  */
-export function writeNote({ folder, filename, title, tags, summary, body, reasoning, sources, sourceChannel }) {
+export function writeNote({
+  folder,
+  filename,
+  title,
+  tags,
+  summary,
+  body,
+  reasoning,
+  sources,
+  sourceChannel,
+  eagleImages,
+}) {
   const dirAbs = vaultFilePath(...folder.split("/"));
   fs.mkdirSync(dirAbs, { recursive: true });
 
@@ -73,7 +97,8 @@ export function writeNote({ folder, filename, title, tags, summary, body, reason
   }
 
   const frontmatter = buildFrontmatter({ title, tags, summary, sources, sourceChannel, reasoning });
-  const content = `${frontmatter}\n\n# ${title}\n\n${body.trim()}\n`;
+  const eagleSection = buildEagleSection(eagleImages);
+  const content = `${frontmatter}\n\n# ${title}\n\n${body.trim()}${eagleSection}\n`;
 
   const fullPath = path.join(dirAbs, finalName);
   fs.writeFileSync(fullPath, content, "utf8");

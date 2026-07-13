@@ -16,8 +16,53 @@ function isNotionUrl(url) {
   }
 }
 
+// 圖片網址篩選：目的是只留下「看起來像內文配圖」的圖片，濾掉 icon/logo/追蹤像素這類雜訊
+// （這些圖片之後會被丟進 Eagle，太多雜訊會讓 Eagle 資料夾很難用）。
+// 這是陽春的檔名/尺寸啟發式判斷，不是完美的圖片辨識，抓不準時寧可保留（讓使用者自己在 Eagle 裡刪）。
+const MIN_IMAGE_DIMENSION = 100;
+const MAX_IMAGES_PER_ARTICLE = 15;
+const NOISE_FILENAME_RE = /\b(icon|logo|avatar|favicon|sprite|pixel|tracking|badge|spacer)\b/i;
+
+function filterAndCapImageUrls(urls) {
+  const seen = new Set();
+  const result = [];
+  for (const url of urls) {
+    if (!url || url.startsWith("data:")) continue;
+    if (NOISE_FILENAME_RE.test(url)) continue;
+    if (seen.has(url)) continue;
+    seen.add(url);
+    result.push(url);
+    if (result.length >= MAX_IMAGES_PER_ARTICLE) break;
+  }
+  return result;
+}
+
+// 從 Readability 整理過的文章 HTML 裡抓 <img> 的 src，解析成絕對網址。
+// 如果 HTML 上有標明寬高，順便濾掉太小的圖（大概率是裝飾用小圖示，不是內文照片）。
+function extractImageUrlsFromHtml(html, baseUrl) {
+  const urls = [];
+  const imgTags = html.match(/<img\b[^>]*>/gi) || [];
+  for (const tag of imgTags) {
+    const srcMatch = tag.match(/\bsrc=["']([^"']+)["']/i);
+    if (!srcMatch) continue;
+
+    const widthMatch = tag.match(/\bwidth=["']?(\d+)/i);
+    const heightMatch = tag.match(/\bheight=["']?(\d+)/i);
+    const w = widthMatch ? Number(widthMatch[1]) : null;
+    const h = heightMatch ? Number(heightMatch[1]) : null;
+    if ((w && w < MIN_IMAGE_DIMENSION) || (h && h < MIN_IMAGE_DIMENSION)) continue;
+
+    try {
+      urls.push(new URL(srcMatch[1], baseUrl).href);
+    } catch {
+      // 相對路徑解析失敗就跳過這張
+    }
+  }
+  return filterAndCapImageUrls(urls);
+}
+
 /**
- * 抓一個網址並嘗試抽出正文。
+ * 抓一個網址並嘗試抽出正文（含內文圖片網址，見 images 欄位）。
  * Notion 頁面走 Playwright（見 fetchNotionViaPlaywright），其他網址走一般 fetch + Readability。
  * 抓不到/被擋掉時回傳 { ok:false, error }，呼叫端要能處理這種情況
  * （例如只靠使用者附的文字說明分類）。
@@ -60,6 +105,7 @@ async function fetchViaFetch(url) {
       excerpt: article.excerpt || "",
       // Readability 回傳的是 HTML，這裡簡單轉成純文字，避免 prompt 塞一堆標籤浪費 token
       text: htmlToText(article.content).slice(0, 12000),
+      images: extractImageUrlsFromHtml(article.content, url),
     };
   } catch (err) {
     return { url, ok: false, error: String(err?.message || err) };
@@ -120,6 +166,11 @@ async function fetchNotionViaPlaywright(url) {
     const text = await waitForStableText(page, { maxWaitMs: 25000, pollMs: 500, minLength: 40 });
     const title = (await page.title()) || "";
 
+    const rawImageUrls = await page
+      .evaluate(() => [...document.querySelectorAll("img")].map((img) => img.src).filter(Boolean))
+      .catch(() => []);
+    const images = filterAndCapImageUrls(rawImageUrls);
+
     await browser.close();
 
     const cleaned = text.replace(/\n{3,}/g, "\n\n").trim();
@@ -139,6 +190,7 @@ async function fetchNotionViaPlaywright(url) {
       byline: "",
       excerpt: "",
       text: cleaned.slice(0, 12000),
+      images,
     };
   } catch (err) {
     if (browser) await browser.close().catch(() => {});
