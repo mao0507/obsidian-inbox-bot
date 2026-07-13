@@ -1,6 +1,7 @@
 import { Telegraf } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS } from "./config.js";
 import { processIncomingContent } from "./pipeline.js";
+import { answerFromVault } from "./askVault.js";
 
 function isAllowed(userId) {
   // 白名單留空 = 不限制任何人（見啟動時的警告訊息）
@@ -13,6 +14,15 @@ function formatGitStatusLine(gitResult) {
   if (gitResult.pushed) return "🔄 已同步到 Git";
   if (gitResult.skipped) return null; // 沒有新異動可 commit，沒什麼好講的
   return `⚠️ Git 同步失敗：${gitResult.error || "未知錯誤"}（筆記已正常存進 Obsidian，只是還沒推上 git）`;
+}
+
+// 幫處理中的訊息掛上持續的「正在輸入...」動畫，回傳一個 stop() 可以在處理完後呼叫清掉計時器。
+function startTypingLoop(ctx) {
+  ctx.sendChatAction("typing").catch(() => {});
+  const timer = setInterval(() => {
+    ctx.sendChatAction("typing").catch(() => {});
+  }, 4000);
+  return () => clearInterval(timer);
 }
 
 export function startBot() {
@@ -31,7 +41,7 @@ export function startBot() {
 
   const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 
-  // 權限檢查放在最前面的 middleware，沒過的話後面的 bot.start / bot.on('text') 都不會執行。
+  // 權限檢查放在最前面的 middleware，沒過的話後面的 bot.start / bot.command / bot.on('text') 都不會執行。
   bot.use(async (ctx, next) => {
     const userId = ctx.from?.id;
     if (isAllowed(userId)) {
@@ -49,13 +59,44 @@ export function startBot() {
 
   bot.start((ctx) =>
     ctx.reply(
-      "嗨！直接傳文字、想法或網址給我，我會自動分類整理，寫進你的 Obsidian vault。"
+      [
+        "嗨！直接傳文字、想法或網址給我，我會自動分類整理，寫進你的 Obsidian vault。",
+        "想從已經存進去的筆記裡查資料，用 /ask 加上你的問題，例如：",
+        "/ask 北海道有什麼景點",
+      ].join("\n")
     )
   );
 
   // /whoami、/id：查自己的 Telegram user ID，方便設定白名單。
-  // 這兩個指令也是走上面的 middleware，未授權的人一樣會被擋下（並且已經在上面的回覆裡看到自己的 ID 了）。
   bot.command(["whoami", "id"], (ctx) => ctx.reply(`你的 Telegram user ID 是：${ctx.from.id}`));
+
+  // /ask <問題>：不寫新筆記，改成從現有筆記庫裡找資料回答問題。
+  bot.command("ask", async (ctx) => {
+    const question = ctx.message.text.replace(/^\/ask(@\w+)?\s*/, "").trim();
+    if (!question) {
+      await ctx.reply("用法：/ask 你的問題，例如：\n/ask 北海道有什麼景點");
+      return;
+    }
+
+    const processingMsg = await ctx.reply("🔍 正在從筆記庫裡查詢...");
+    const stopTyping = startTypingLoop(ctx);
+
+    try {
+      const { answer, matchedCount } = await answerFromVault(question);
+      const footer = matchedCount > 0 ? `\n\n（搜尋了 ${matchedCount} 篇相關筆記）` : "";
+      await ctx.telegram.editMessageText(ctx.chat.id, processingMsg.message_id, undefined, `${answer}${footer}`);
+    } catch (err) {
+      console.error(err);
+      await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        processingMsg.message_id,
+        undefined,
+        `❌ 查詢失敗：${String(err?.message || err)}`
+      );
+    } finally {
+      stopTyping();
+    }
+  });
 
   bot.on("text", async (ctx) => {
     const text = ctx.message.text;
@@ -65,10 +106,7 @@ export function startBot() {
 
     // Telegram 的「正在輸入...」動畫大概只會維持約 5 秒就自動消失，
     // Notion 頁面這種長時間處理（可能到 20~30 秒）要每隔幾秒重送一次才會全程顯示。
-    await ctx.sendChatAction("typing").catch(() => {});
-    const typingTimer = setInterval(() => {
-      ctx.sendChatAction("typing").catch(() => {});
-    }, 4000);
+    const stopTyping = startTypingLoop(ctx);
 
     try {
       const { draft, result, gitResult } = await processIncomingContent(text, "telegram");
@@ -97,7 +135,7 @@ export function startBot() {
         `❌ 處理失敗：${String(err?.message || err)}`
       );
     } finally {
-      clearInterval(typingTimer);
+      stopTyping();
     }
   });
 

@@ -122,6 +122,24 @@ npm run dev
 
 CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON）時，那一則內容會回傳錯誤訊息，不會生成筆記，可以直接重送一次。
 
+## 從已收錄的筆記查詢資料（/ask）
+
+不是要新增筆記，而是想問「我之前存過的東西裡有沒有相關資料」，在 Telegram 用：
+
+```
+/ask 北海道有什麼景點
+/ask ClaudeCode 有什麼省 token 的技巧
+/ask Vue3 的 Pinia 要怎麼用
+```
+
+運作方式：
+
+1. 先在本機用關鍵字比對（`src/noteIndex.js`）從 vault 所有筆記的標題、tags、摘要、內文裡找出最相關的幾篇，不需要呼叫 AI，很快。完全找不到相關筆記的話會直接回覆「沒有相關資料」，不會浪費一次 AI 呼叫。
+2. 找到的話，把這幾篇筆記的完整內容連同你的問題一起丟給 AI（沿用 `CLASSIFIER_MODE` 設定，跟平常分類文章用同一套：本機 CLI 或 Anthropic API），並明確要求「只能根據提供的筆記內容回答，不能瞎掰、不能用自己的知識庫補充」。
+3. AI 的回答會直接回覆在 Telegram，結尾會附上它實際引用了哪幾篇筆記。
+
+**限制**：這是關鍵字比對，不是語意搜尋，找不到同義詞（例如筆記裡寫「函式」，你問「function」大概率搜不到，除非兩者都直接出現在筆記某處）。筆記數量多、內容龐大時只會取最相關的前 8 篇、每篇內文超過 3000 字會截斷，避免單次問答內容太大。
+
 ## 自動同步筆記到 Git（選用）
 
 想讓 vault 裡的筆記自動備份/同步到你自己的 git repo（GitHub、GitLab、自架 Gitea 都可以），設定 `.env` 的：
@@ -204,14 +222,18 @@ obsidian-inbox-bot/
     ├── vaultScan.js        掃描動態分類既有名稱，維持 AI 命名一致
     ├── extractContent.js  抓網頁、抽正文
     ├── promptBuilder.js    組出給 API/CLI 共用的 prompt 內容
+    ├── cliRunner.js         spawn 本機 agent CLI 的共用邏輯（分類、/ask 都會用到）
     ├── classify.js         依 CLASSIFIER_MODE 分派給 API 版或 CLI 版
     ├── classifyViaApi.js   走 Anthropic API + tool-use 做分類
     ├── classifyViaCli.js   走本機 agent CLI（如 claude -p）做分類
     ├── writeNote.js        寫入 .md 檔到 vault
     ├── gitSync.js           筆記寫入後自動 commit + push 到 VAULT_GIT_REMOTE（選用）
+    ├── noteIndex.js         讀取 vault 所有筆記、關鍵字比對找出相關筆記（給 /ask 用）
+    ├── askAi.js              呼叫本機 CLI 或 API 做純文字問答（不是結構化分類）
+    ├── askVault.js           整合 noteIndex + askAi，處理 /ask 的完整流程
     ├── pipeline.js         串起以上流程，web/telegram 共用
     ├── server.js           Express 網頁伺服器
-    └── bot.js              Telegram bot
+    └── bot.js              Telegram bot（含 /ask 指令）
 
 scripts/
   └── git-sync.js            手動觸發一次 vault git 同步（npm run vault:sync）
