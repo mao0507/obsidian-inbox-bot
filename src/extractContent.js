@@ -61,6 +61,35 @@ function extractImageUrlsFromHtml(html, baseUrl) {
   return filterAndCapImageUrls(urls);
 }
 
+// 解常見的 HTML entity，給 og:title / og:description 這種直接從原始 HTML 屬性裡
+// 正則抓出來的字串用（沒有經過瀏覽器 DOM 解析，& quot; 之類的符號要自己轉回來）。
+function decodeHtmlEntities(str) {
+  if (!str) return "";
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
+
+// 抓 <meta property="og:xxx" content="..."> ——屬性順序不一定，兩種寫法都試。
+function extractOgMeta(html) {
+  const get = (prop) => {
+    const patterns = [
+      new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]*content=["']([^"']*)["']`, "i"),
+      new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*property=["']og:${prop}["']`, "i"),
+    ];
+    for (const re of patterns) {
+      const m = html.match(re);
+      if (m) return decodeHtmlEntities(m[1]);
+    }
+    return "";
+  };
+  return { title: get("title"), description: get("description"), image: get("image") };
+}
+
 /**
  * 抓一個網址並嘗試抽出正文（含內文圖片網址，見 images 欄位）。
  * Notion 頁面走 Playwright（見 fetchNotionViaPlaywright），其他網址走一般 fetch + Readability。
@@ -73,6 +102,11 @@ export async function fetchUrlContent(url) {
   }
   return fetchViaFetch(url);
 }
+
+// Readability 是為長篇文章設計的，遇到 Threads/X/Instagram 這種短貼文、
+// 或是重度 JS 渲染、伺服器端幾乎沒吐出可讀內文的頁面，常常直接回傳 null，
+// 或是抓到的內容短到沒意義。這個門檻用來判斷「要不要退而求其次改用 og:description」。
+const MIN_READABLE_TEXT_LENGTH = 40;
 
 async function fetchViaFetch(url) {
   try {
@@ -94,9 +128,37 @@ async function fetchViaFetch(url) {
     const html = await res.text();
     const dom = new JSDOM(html, { url });
     const article = new Readability(dom.window.document).parse();
-    if (!article) {
-      return { url, ok: false, error: "無法解析文章內容" };
+
+    const readableText = article ? htmlToText(article.content) : "";
+
+    if (!article || readableText.trim().length < MIN_READABLE_TEXT_LENGTH) {
+      // Readability 抓不到夠長的正文：常見於 Threads、X（Twitter）、Instagram 這類
+      // 短文社群貼文（整篇貼文可能就幾十個字，本來就不像「文章」），
+      // 或是頁面本身重度 JS 渲染、伺服器端沒吐出可讀內文。
+      // 這類社群平台為了讓連結分享時能顯示預覽卡片，通常在原始 HTML 裡就會吐出
+      // og:title / og:description，不需要真的執行 JS，這裡退而求其次改抓這個。
+      const ogMeta = extractOgMeta(html);
+      if (ogMeta.description || ogMeta.title) {
+        const text = [ogMeta.title, ogMeta.description].filter(Boolean).join("\n\n");
+        return {
+          url,
+          ok: true,
+          title: ogMeta.title || article?.title || "",
+          byline: "",
+          excerpt: ogMeta.description,
+          text,
+          images: ogMeta.image ? filterAndCapImageUrls([ogMeta.image]) : [],
+        };
+      }
+      return {
+        url,
+        ok: false,
+        error: article
+          ? "抓到的內容太短，且沒有 og:description 可用當備案（可能是需要登入才能看的貼文）"
+          : "無法解析文章內容",
+      };
     }
+
     return {
       url,
       ok: true,
@@ -104,7 +166,7 @@ async function fetchViaFetch(url) {
       byline: article.byline || "",
       excerpt: article.excerpt || "",
       // Readability 回傳的是 HTML，這裡簡單轉成純文字，避免 prompt 塞一堆標籤浪費 token
-      text: htmlToText(article.content).slice(0, 12000),
+      text: readableText.slice(0, 12000),
       images: extractImageUrlsFromHtml(article.content, url),
     };
   } catch (err) {
