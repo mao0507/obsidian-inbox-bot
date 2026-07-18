@@ -42,7 +42,7 @@ function findChildByName(nodes, name) {
   return (nodes || []).find((n) => n.name === name);
 }
 
-// 依照 Obsidian 的 folder 路徑（例如 "07 旅遊/日本/北海道"）在 Eagle 裡確保存在同樣的巢狀資料夾結構，
+// 依照 Obsidian 的 folder 路徑（例如 "旅遊/日本/北海道"）在 Eagle 裡確保存在同樣的巢狀資料夾結構，
 // 沒有的話沿路建立，回傳最深層那個資料夾的 id。
 async function ensureFolderPath(folderPath) {
   const segments = folderPath.split("/").filter(Boolean);

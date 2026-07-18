@@ -17,12 +17,27 @@ export function startServer() {
   app.post("/api/submit", async (req, res) => {
     try {
       const { content } = req.body || {};
-      const { draft, result, gitResult, eagleResult, eagleGitResult, embedResult } = await processIncomingContent(
-        content,
-        "web"
-      );
+      const {
+        duplicate,
+        duplicatePath,
+        draft,
+        result,
+        gitResult,
+        eagleResult,
+        eagleGitResult,
+        embedResult,
+        relatedResult,
+        mocResult,
+      } = await processIncomingContent(content, "web");
+
+      if (duplicate) {
+        res.json({ ok: true, duplicate: true, duplicatePath });
+        return;
+      }
+
       res.json({
         ok: true,
+        duplicate: false,
         folder: draft.folder,
         filename: path.basename(result.relativePath),
         relativePath: result.relativePath,
@@ -52,6 +67,8 @@ export function startServer() {
                 failed: embedResult.failed || 0,
               }
             : null,
+        related: relatedResult?.linkedCount ? { linkedCount: relatedResult.linkedCount } : null,
+        moc: mocResult?.updated ? { path: mocResult.mocPath } : null,
       });
     } catch (err) {
       console.error(err);

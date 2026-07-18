@@ -17,9 +17,9 @@ const FILE_NOTE_TOOL = {
         description:
           `這篇筆記要放進哪個資料夾。多數情況必須是下面清單中已存在的固定路徑之一：${VALID_FOLDERS.join("、")}。` +
           `另外還有三個動態分類，folder 要依內容組出對應層級：` +
-          `"06 AI/<工具名稱，AI自訂>/<提示詞庫|教學文章|新聞動態|工具比較>"、` +
-          `"05 Learning/<書籍|課程|文章整理>/<主題或書名，AI自訂>"、` +
-          `"07 旅遊/<國家，AI自訂>/<城市或地區，AI自訂>"。` +
+          `"AI/<工具名稱，AI自訂>/<提示詞庫|教學文章|新聞動態|工具比較>"、` +
+          `"學習/<書籍|課程|文章整理>/<主題或書名，AI自訂>"、` +
+          `"旅遊/<國家，AI自訂>/<城市或地區，AI自訂>"。` +
           `AI 自訂的那一層請參考 system prompt 裡「動態分類目前已有名稱」優先重複使用既有名稱，不要創造新的相似變體。`,
       },
       filename: {
@@ -60,8 +60,8 @@ export async function classifyViaApi({ rawText, fetched, sourceChannel }) {
 
   const payload = toolUse.input;
   if (!isValidFolder(payload.folder)) {
-    console.warn(`[classifier] API 選了不合法的資料夾「${payload.folder}」，改放進 00 Inbox/待整理`);
-    payload.folder = "00 Inbox/待整理";
+    console.warn(`[classifier] API 選了不合法的資料夾「${payload.folder}」，改放進 收件匣/待整理`);
+    payload.folder = "收件匣/待整理";
   }
   return payload;
 }

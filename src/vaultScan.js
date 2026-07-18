@@ -19,7 +19,7 @@ function listDirs(absPath) {
 // （例如已經有 "ClaudeCode"，就不會再建一個 "Claude Code" 或 "Claude AI"）。
 //
 // 只有「完整走到規定的階層深度」的路徑才會被視為有效既有名稱，
-// 避免舊分類結構留下的殘破空資料夾（例如改版前的 "06 AI/教學文章"）
+// 避免舊分類結構留下的殘破空資料夾（例如改版前的 "AI/教學文章"）
 // 被誤判成新結構裡的名稱。
 export function getDynamicFolderExamples() {
   const lines = [];

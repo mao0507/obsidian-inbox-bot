@@ -87,6 +87,16 @@
         const data = await res.json();
         if (!data.ok) throw new Error(data.error || '未知錯誤');
 
+        if (data.duplicate) {
+          result.innerHTML = `
+            <strong>📎 這篇文章已經存過了</strong><br/>
+            既有筆記：${data.duplicatePath}<br/>
+            沒有建立新筆記，避免重複。
+          `;
+          document.getElementById('content').value = '';
+          return;
+        }
+
         let gitLine = '';
         if (data.git) {
           if (data.git.pushed) gitLine = '<br/>🔄 已同步到 Git';
@@ -115,6 +125,12 @@
           else if (!data.eagleGit.skipped) eagleGitLine = `<br/>⚠️ Eagle 圖片備份到 git 失敗：${data.eagleGit.error || '未知錯誤'}`;
         }
 
+        let relatedLine = '';
+        if (data.related) relatedLine = `<br/>🔗 已跟 ${data.related.linkedCount} 篇既有筆記互相補上關聯連結`;
+
+        let mocLine = '';
+        if (data.moc) mocLine = `<br/>🗺️ 已更新「${data.moc.path}」分類地圖`;
+
         result.innerHTML = `
           <strong>✅ 已存檔</strong><br/>
           標題：${data.title}<br/>
@@ -125,6 +141,8 @@
           ${embedLine}
           ${eagleLine}
           ${eagleGitLine}
+          ${relatedLine}
+          ${mocLine}
           ${gitLine}
         `;
         document.getElementById('content').value = '';

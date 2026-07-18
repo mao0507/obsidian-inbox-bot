@@ -55,8 +55,8 @@ export async function classifyViaCli({ rawText, fetched, sourceChannel }) {
   }
 
   if (!isValidFolder(payload.folder)) {
-    console.warn(`[classifier] CLI 選了不合法的資料夾「${payload.folder}」，改放進 00 Inbox/待整理`);
-    payload.folder = "00 Inbox/待整理";
+    console.warn(`[classifier] CLI 選了不合法的資料夾「${payload.folder}」，改放進 收件匣/待整理`);
+    payload.folder = "收件匣/待整理";
   }
 
   return payload;

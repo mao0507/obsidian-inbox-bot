@@ -60,21 +60,31 @@
 
 打開 `src/taxonomy.js`：
 
-- `FLAT_CATEGORIES`：`01 Knowledge`、`03 Snippets`、`04 Bugs` 這三個是**扁平資料夾**，不分技術子資料夾——筆記直接放進資料夾本身，技術用 tags 標註（例如一篇筆記可以同時貼 `Vue` 和 `TypeScript`）。這是為了解決「內容橫跨兩個技術時，樹狀子資料夾逼你只能二選一」的問題：以前 `01 Knowledge/Vue` 和 `01 Knowledge/TypeScript` 分開，一篇同時講兩者的筆記只能塞一邊；現在都在 `01 Knowledge` 底下，靠 tags 區分。
-- `NESTED_TAXONOMY`：其餘分類（`00 Inbox`、`02 Projects`、`Assets`）維持樹狀子資料夾，因為這些子分類彼此互斥，不會有跨分類的問題。要加新子分類，直接在對應陣列裡加一行字串即可，不用改其他程式碼。
+資料夾命名一律「拿掉數字前綴、用中文命名」（`知識庫`、`程式片段`、`踩雷筆記`、`收件匣`、`專案`、`學習`、`AI`、`旅遊`），沒有數字前綴。如果你要手動幫 vault 裡的資料夾改名，記得同時把 `taxonomy.js` 裡對應的名稱也改掉——這兩邊只要對不上，程式下次分類新內容時會照 `taxonomy.js` 裡的舊名稱重新生出一個資料夾，跟你手動整理過的資料夾變成兩套並存。
+
+- `FLAT_CATEGORIES`：`知識庫`、`程式片段`、`踩雷筆記` 這三個是**扁平資料夾**，不分技術子資料夾——筆記直接放進資料夾本身，技術用 tags 標註（例如一篇筆記可以同時貼 `Vue` 和 `TypeScript`）。這是為了解決「內容橫跨兩個技術時，樹狀子資料夾逼你只能二選一」的問題：以前 `知識庫/Vue` 和 `知識庫/TypeScript` 分開，一篇同時講兩者的筆記只能塞一邊；現在都在 `知識庫` 底下，靠 tags 區分。
+- `NESTED_TAXONOMY`：其餘分類（`收件匣`、`專案`、`Assets`）維持樹狀子資料夾，因為這些子分類彼此互斥，不會有跨分類的問題。要加新子分類，直接在對應陣列裡加一行字串即可，不用改其他程式碼。
 - `DYNAMIC_TAXONOMY`：至少有一層子資料夾不是固定清單、由 AI 依內容動態決定。每個分類用 `levels` 陣列描述每一層是 `fixed`（固定選項清單）還是 `free`（AI 自己取名），目前有三個：
-  - `07 旅遊`：兩層都是 `free`，依文章描述的地區組成「國家/城市或地區」，例如 `07 旅遊/台灣/台中`、`07 旅遊/日本/北海道`。地區不明確時退回 `00 Inbox/待整理`。
-  - `06 AI`：第一層 `free`（工具名稱，例如 `ClaudeCode`、`Cursor`、`OpenAI`），第二層 `fixed`（`提示詞庫`/`教學文章`/`新聞動態`/`工具比較`），例如 `06 AI/ClaudeCode/教學文章`。橫跨多個工具或講產業整體的內容，工具名稱層會填 `綜合`。
-  - `05 Learning`：第一層 `fixed`（`書籍`/`課程`/`文章整理`），第二層 `free`（主題或書名），例如 `05 Learning/書籍/原子習慣`。
+  - `旅遊`：兩層都是 `free`，依文章描述的地區組成「國家/城市或地區」，例如 `旅遊/台灣/台中`、`旅遊/日本/北海道`。地區不明確時退回 `收件匣/待整理`。
+  - `AI`：第一層 `free`（工具名稱，例如 `ClaudeCode`、`Cursor`、`OpenAI`），第二層 `fixed`（`提示詞庫`/`教學文章`/`新聞動態`/`工具比較`），例如 `AI/ClaudeCode/教學文章`。橫跨多個工具或講產業整體的內容，工具名稱層會填 `綜合`。
+  - `學習`：第一層 `fixed`（`書籍`/`課程`/`文章整理`），第二層 `free`（主題或書名），例如 `學習/書籍/原子習慣`。
   要加新的動態分類，在 `DYNAMIC_TAXONOMY` 裡加一個 key，照格式設定 `levels` 和 `hint` 即可。
 - `RULES`：文字描述的分類規則，可以照自己習慣改寫，AI 會照這份規則判斷。
-- `isValidFolder(folder)`：驗證 AI 回傳的 folder 是否合法（扁平/樹狀分類要完全對上清單，動態分類檢查階層數與每層的 fixed/free 規則）。分類邏輯（`classifyViaApi.js`、`classifyViaCli.js`）都會用這個驗證，不合法就自動退回 `00 Inbox/待整理`。
+- `isValidFolder(folder)`：驗證 AI 回傳的 folder 是否合法（扁平/樹狀分類要完全對上清單，動態分類檢查階層數與每層的 fixed/free 規則）。分類邏輯（`classifyViaApi.js`、`classifyViaCli.js`）都會用這個驗證，不合法就自動退回 `收件匣/待整理`。
 
-`06 AI` 是獨立於 `05 Learning` 之外的頂層分類，AI 相關內容（工具教學、提示詞庫、新聞動態、工具比較）都會被分到這裡，而不是混進一般的 `05 Learning`。
+`AI` 是獨立於 `學習` 之外的頂層分類，AI 相關內容（工具教學、提示詞庫、新聞動態、工具比較）都會被分到這裡，而不是混進一般的 `學習`。
 
-動態分類（`06 AI`、`05 Learning`、`07 旅遊`）裡由 AI 自訂的那一層，不用先在 `taxonomy.js` 裡把所有可能值列出來，AI 會依內容自己建立對應的子資料夾。為了避免同一個工具/主題/地區每次被取成不同的名稱變體（例如 `ClaudeCode` 跟 `Claude Code` 分開兩個資料夾），`src/vaultScan.js` 每次分類前會先掃描 vault 裡動態分類已經存在的名稱，放進 prompt 讓 AI 優先重複使用既有名稱。
+動態分類（`AI`、`學習`、`旅遊`）裡由 AI 自訂的那一層，不用先在 `taxonomy.js` 裡把所有可能值列出來，AI 會依內容自己建立對應的子資料夾。為了避免同一個工具/主題/地區每次被取成不同的名稱變體（例如 `ClaudeCode` 跟 `Claude Code` 分開兩個資料夾），`src/vaultScan.js` 每次分類前會先掃描 vault 裡動態分類已經存在的名稱，放進 prompt 讓 AI 優先重複使用既有名稱。
 
 改完存檔、重新 `npm start` 即可生效。
+
+## 自動去重、關聯連結、分類地圖
+
+三個之前沒有、後來補上的行為，都在 `pipeline.js` 裡串接，web/Telegram 共用：
+
+- **來源網址去重**（`src/duplicateCheck.js`）：分類之前先比對 vault 裡所有筆記 frontmatter 的 `source`/`other_sources`，網址正規化後（拿掉 `utm_*`、`fbclid`、`srsltid` 等追蹤參數、結尾斜線）完全相同就視為同一篇，直接回報既有筆記路徑、不建立新筆記、也不浪費一次 AI 呼叫。Telegram 會回覆「📎 這篇文章已經存過了」，網頁版也會顯示對應訊息。
+- **雙向關聯連結**（`src/relatedNotes.js`）：筆記寫入後自動判斷「相關筆記」並互相補上 `[[wikilink]]`——動態分類（`AI`/`學習`/`旅遊`）用「同一個最深層資料夾」判斷相關，扁平分類（`知識庫`/`程式片段`/`踩雷筆記`）用「至少共用一個 tag」判斷相關。只會新增連結，不會動到既有的「## 相關筆記」內容（包含你自己手動加的）。
+- **分類地圖自動維護**（`src/mocSync.js`）：動態分類（`AI`/`學習`/`旅遊`）每次有新筆記進來，會整份重新掃描該分類資料夾、重新產生一份 `<分類>地圖.md`（例如 `AI/AI地圖.md`），依實際資料夾巢狀結構列出所有筆記連結。**這個檔案是自動產生的索引，不要手動編輯**——下次有新筆記進來會整份覆寫，手動加的內容會不見。想備註什麼，寫在筆記本身裡就好。`知識庫`（扁平分類）不會有自動地圖，因為技術靠 tags 分、資料夾本身沒有主題結構可以拿來分組。
 
 ## 開發模式（自動重啟）
 
@@ -137,7 +147,7 @@ EAGLE_ENABLED=true
 設定好、重啟程式之後：
 
 1. 抓文章時，除了正文之外也會順便抓文中的圖片網址（會濾掉看起來像 icon/logo/追蹤像素的圖，最多留 15 張）。
-2. AI 分類完成、決定好資料夾之後（例如 `07 旅遊/日本/北海道`），這支程式會在 Eagle 裡確保有一模一樣的巢狀資料夾——沒有的話自動建立，有的話直接沿用，不會重複建立。
+2. AI 分類完成、決定好資料夾之後（例如 `旅遊/日本/北海道`），這支程式會在 Eagle 裡確保有一模一樣的巢狀資料夾——沒有的話自動建立，有的話直接沿用，不會重複建立。
 3. 圖片網址交給 Eagle 的 `addFromURLs` API，讓 Eagle 自己下載並存進剛剛對應的資料夾，同時帶上這篇筆記的 tags、來源網址。
 4. 匯入成功的圖片會在 Obsidian 筆記正文最後加上一段「## 相關圖片（Eagle）」，用 `eagle://item/...` 深連結列出來，點了會直接跳到 Eagle 裡對應的圖片。
 5. Telegram 回覆、網頁結果都會多一行狀態：🖼️ 已存 N 張圖片到 Eagle，或是失敗時顯示錯誤原因（筆記本身一定已經正常寫進本機，Eagle 同步失敗不影響這件事）。
@@ -160,7 +170,7 @@ EAGLE_GIT_REMOTE=https://github.com/your-name/eagle-images.git
 
 設定好、重啟程式之後：
 
-1. 文章裡抓到的圖片網址，這支程式會自己下載下來（不需要 Eagle App、不透過 Eagle 的 API），存到本機一個資料夾（預設是 vault 同一層的 `Eagle Images` 資料夾，可以用 `EAGLE_IMAGES_PATH` 改成別的路徑），並依照跟 Obsidian 一樣的分類路徑建立同構的子資料夾（例如 `Eagle Images/07 旅遊/日本/北海道/`）。
+1. 文章裡抓到的圖片網址，這支程式會自己下載下來（不需要 Eagle App、不透過 Eagle 的 API），存到本機一個資料夾（預設是 vault 同一層的 `Eagle Images` 資料夾，可以用 `EAGLE_IMAGES_PATH` 改成別的路徑），並依照跟 Obsidian 一樣的分類路徑建立同構的子資料夾（例如 `Eagle Images/旅遊/日本/北海道/`）。
 2. 存好之後自動 `git add -A` + commit + push 到 `EAGLE_GIT_REMOTE`。第一次會自動 `git init` 這個資料夾、建立 remote，行為跟 `VAULT_GIT_REMOTE` 那套完全一樣（同一套底層邏輯），包括 push 前會先 `pull --rebase` 避免落後遠端被拒絕、認證方式一樣要先在電腦上設定好（Git Credential Manager 或 SSH key），沒設定好會直接失敗並印錯誤，不會卡住整支程式。
 3. 個別圖片下載失敗（連不到、404、檔案超過 20MB）不會讓整批失敗，會跳過那張繼續處理其他張，最後一起 commit。
 4. Telegram 回覆、網頁結果會多一行狀態：📦 已備份 N 張圖片到 Eagle 圖片 git，或失敗原因。
@@ -282,6 +292,9 @@ obsidian-inbox-bot/
     ├── classify.js         依 CLASSIFIER_MODE 分派給 API 版或 CLI 版
     ├── classifyViaApi.js   走 Anthropic API + tool-use 做分類
     ├── classifyViaCli.js   走本機 agent CLI（如 claude -p）做分類
+    ├── duplicateCheck.js    分類前比對來源網址，vault 裡已有同一篇文章就直接回報、不重複建立
+    ├── relatedNotes.js      筆記寫入後跟相關的既有筆記互相補上雙向 [[wikilink]]
+    ├── mocSync.js           動態分類（AI/學習/旅遊）重新產生 <分類>地圖.md 索引
     ├── imageDownload.js      下載圖片、決定副檔名/檔名的共用邏輯（eagleImageArchive.js、imageEmbed.js 共用）
     ├── eagleSync.js          把文中圖片匯入 Eagle App、依分類建同構資料夾（選用）
     ├── eagleImageArchive.js  下載文中圖片、備份到獨立的 EAGLE_GIT_REMOTE（選用，不需要 Eagle App）

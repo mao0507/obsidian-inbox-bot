@@ -44,6 +44,16 @@ function formatEmbedStatusLine(embedResult) {
   return `⚠️ 圖片內嵌失敗（${failed} 張全部下載失敗）`;
 }
 
+function formatRelatedStatusLine(relatedResult) {
+  if (!relatedResult || !relatedResult.linkedCount) return null;
+  return `🔗 已跟 ${relatedResult.linkedCount} 篇既有筆記互相補上關聯連結`;
+}
+
+function formatMocStatusLine(mocResult) {
+  if (!mocResult || !mocResult.updated) return null;
+  return `🗺️ 已更新「${mocResult.mocPath}」分類地圖`;
+}
+
 // 幫處理中的訊息掛上持續的「正在輸入...」動畫，回傳一個 stop() 可以在處理完後呼叫清掉計時器。
 function startTypingLoop(ctx) {
   ctx.sendChatAction("typing").catch(() => {});
@@ -137,10 +147,33 @@ export function startBot() {
     const stopTyping = startTypingLoop(ctx);
 
     try {
-      const { draft, result, gitResult, eagleResult, eagleGitResult, embedResult } = await processIncomingContent(
-        text,
-        "telegram"
-      );
+      const {
+        duplicate,
+        duplicatePath,
+        draft,
+        result,
+        gitResult,
+        eagleResult,
+        eagleGitResult,
+        embedResult,
+        relatedResult,
+        mocResult,
+      } = await processIncomingContent(text, "telegram");
+
+      if (duplicate) {
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          processingMsg.message_id,
+          undefined,
+          [
+            "📎 這篇文章已經存過了，沒有建立新筆記。",
+            `既有筆記：${duplicatePath}`,
+            "如果確定要重複建立，把連結後面加個字或不同網址再丟一次即可。",
+          ].join("\n")
+        );
+        return;
+      }
+
       await ctx.telegram.editMessageText(
         ctx.chat.id,
         processingMsg.message_id,
@@ -155,6 +188,8 @@ export function startBot() {
           formatEmbedStatusLine(embedResult),
           formatEagleStatusLine(eagleResult),
           formatEagleGitStatusLine(eagleGitResult),
+          formatRelatedStatusLine(relatedResult),
+          formatMocStatusLine(mocResult),
           formatGitStatusLine(gitResult),
         ]
           .filter(Boolean)
