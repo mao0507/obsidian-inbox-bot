@@ -103,28 +103,6 @@
           else if (!data.git.skipped) gitLine = `<br/>⚠️ Git 同步失敗：${data.git.error || '未知錯誤'}`;
         }
 
-        let embedLine = '';
-        if (data.embed) {
-          if (data.embed.count > 0) {
-            const failedNote = data.embed.failed ? `，${data.embed.failed} 張下載失敗` : '';
-            embedLine = `<br/>🖼️ 已內嵌 ${data.embed.count} 張圖片到筆記${failedNote}`;
-          } else if (data.embed.failed) {
-            embedLine = `<br/>⚠️ 圖片內嵌失敗（${data.embed.failed} 張全部下載失敗）`;
-          }
-        }
-
-        let eagleLine = '';
-        if (data.eagle) {
-          if (data.eagle.synced) eagleLine = `<br/>🖼️ 已存 ${data.eagle.count} 張圖片到 Eagle`;
-          else eagleLine = `<br/>⚠️ Eagle 圖片同步失敗：${data.eagle.error || '未知錯誤'}`;
-        }
-
-        let eagleGitLine = '';
-        if (data.eagleGit) {
-          if (data.eagleGit.pushed) eagleGitLine = `<br/>📦 已備份 ${data.eagleGit.downloaded} 張圖片到 Eagle 圖片 git`;
-          else if (!data.eagleGit.skipped) eagleGitLine = `<br/>⚠️ Eagle 圖片備份到 git 失敗：${data.eagleGit.error || '未知錯誤'}`;
-        }
-
         let relatedLine = '';
         if (data.related) relatedLine = `<br/>🔗 已跟 ${data.related.linkedCount} 篇既有筆記互相補上關聯連結`;
 
@@ -138,9 +116,6 @@
           檔名：${data.filename}<br/>
           摘要：${data.summary || ''}<br/>
           ${(data.tags || []).map(t => `<span class="tag">#${t}</span>`).join('')}
-          ${embedLine}
-          ${eagleLine}
-          ${eagleGitLine}
           ${relatedLine}
           ${mocLine}
           ${gitLine}

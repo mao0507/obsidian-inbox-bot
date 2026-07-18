@@ -132,61 +132,6 @@ npm run dev
 
 CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON）時，那一則內容會回傳錯誤訊息，不會生成筆記，可以直接重送一次。
 
-## 圖片自動存進 Eagle（選用）
-
-文章裡的圖片可以自動匯入 [Eagle](https://eagle.cool/)（圖片管理 App），並依照跟 Obsidian 一樣的分類路徑在 Eagle 裡建立對應資料夾。
-
-**前置需求**：電腦上要裝 Eagle App，新增筆記時 Eagle 要是開著的狀態（這支程式是透過 Eagle 的本機 API 溝通，Eagle 沒開就連不到）。
-
-設定 `.env`：
-
-```
-EAGLE_ENABLED=true
-```
-
-設定好、重啟程式之後：
-
-1. 抓文章時，除了正文之外也會順便抓文中的圖片網址（會濾掉看起來像 icon/logo/追蹤像素的圖，最多留 15 張）。
-2. AI 分類完成、決定好資料夾之後（例如 `旅遊/日本/北海道`），這支程式會在 Eagle 裡確保有一模一樣的巢狀資料夾——沒有的話自動建立，有的話直接沿用，不會重複建立。
-3. 圖片網址交給 Eagle 的 `addFromURLs` API，讓 Eagle 自己下載並存進剛剛對應的資料夾，同時帶上這篇筆記的 tags、來源網址。
-4. 匯入成功的圖片會在 Obsidian 筆記正文最後加上一段「## 相關圖片（Eagle）」，用 `eagle://item/...` 深連結列出來，點了會直接跳到 Eagle 裡對應的圖片。
-5. Telegram 回覆、網頁結果都會多一行狀態：🖼️ 已存 N 張圖片到 Eagle，或是失敗時顯示錯誤原因（筆記本身一定已經正常寫進本機，Eagle 同步失敗不影響這件事）。
-
-**限制**：
-
-- Eagle 本機 API 只能「給網址讓 Eagle 自己下載」，沒有辦法直接上傳本機檔案，所以圖片一定要是文章裡可以公開存取的網址。
-- 一篇文章完全沒有圖片、或圖片被判斷是裝飾用小圖（icon/logo 之類）時，不會呼叫 Eagle，也不會在 Eagle 裡建空資料夾。
-- `eagle://item/...` 深連結指到的是「剛剛匯入的那幾筆」，判斷方式是抓該 Eagle 資料夾裡最新建立的幾筆——如果你在存筆記的同一瞬間剛好也手動在 Eagle 裡匯入東西到同一個資料夾，連結可能會對不準（機率很低，正常使用不會遇到）。
-
-### 圖片再備份一份到你自己的 git repo
-
-上面那個是把圖片交給 Eagle App 處理，跟 Eagle 本身有沒有開著綁在一起。如果你想要「不管 Eagle 開不開，只要文章有抓到圖片就把圖片檔案本身存進一個我自己的 git repo」，這是另一件獨立的事，兩個可以都開、只開一個，或都不開。
-
-設定 `.env`（`VAULT_GIT_REMOTE` 的圖片版，用法完全一樣）：
-
-```
-EAGLE_GIT_REMOTE=https://github.com/your-name/eagle-images.git
-```
-
-設定好、重啟程式之後：
-
-1. 文章裡抓到的圖片網址，這支程式會自己下載下來（不需要 Eagle App、不透過 Eagle 的 API），存到本機一個資料夾（預設是 vault 同一層的 `Eagle Images` 資料夾，可以用 `EAGLE_IMAGES_PATH` 改成別的路徑），並依照跟 Obsidian 一樣的分類路徑建立同構的子資料夾（例如 `Eagle Images/旅遊/日本/北海道/`）。
-2. 存好之後自動 `git add -A` + commit + push 到 `EAGLE_GIT_REMOTE`。第一次會自動 `git init` 這個資料夾、建立 remote，行為跟 `VAULT_GIT_REMOTE` 那套完全一樣（同一套底層邏輯），包括 push 前會先 `pull --rebase` 避免落後遠端被拒絕、認證方式一樣要先在電腦上設定好（Git Credential Manager 或 SSH key），沒設定好會直接失敗並印錯誤，不會卡住整支程式。
-3. 個別圖片下載失敗（連不到、404、檔案超過 20MB）不會讓整批失敗，會跳過那張繼續處理其他張，最後一起 commit。
-4. Telegram 回覆、網頁結果會多一行狀態：📦 已備份 N 張圖片到 Eagle 圖片 git，或失敗原因。
-
-**限制**：跟上面一樣，完全沒有圖片時不會做任何事；圖片網址一定要能公開下載到（不支援需要登入才能看的圖）。
-
-### 圖片直接內嵌在筆記正文裡
-
-只要 `EAGLE_ENABLED` 或 `EAGLE_GIT_ENABLED` 有開一個（不需要兩個都開），文章裡抓到的圖片除了上面的處理之外，還會額外下載一份到 vault 裡跟筆記本身同一個資料夾，並在筆記正文最後加上一段「## 圖片」，用 Obsidian 的 `![[檔名]]` 內嵌語法把圖片直接嵌進去——打開筆記就能直接看到圖，不用點連結、不用另外開 Eagle App。
-
-這跟「## 相關圖片（Eagle）」是兩段不同的東西，會同時出現在同一篇筆記裡：內嵌那段是給你打開筆記直接看圖用的，Eagle 連結那段是給你想跳去 Eagle App 裡整理標籤用的。
-
-不想要圖片實體存進 vault 資料夾（例如 vault 也有另外同步到雲端、不想佔空間），把 `EAGLE_ENABLED` 和 `EAGLE_GIT_ENABLED` 都設成 `false` 或不設定就好，這個內嵌功能就不會動作。
-
-Telegram 回覆、網頁結果會多一行狀態：🖼️ 已內嵌 N 張圖片到筆記，或失敗原因。
-
 ## 從已收錄的筆記查詢資料（/ask）
 
 不是要新增筆記，而是想問「我之前存過的東西裡有沒有相關資料」，在 Telegram 用：
@@ -286,7 +231,7 @@ obsidian-inbox-bot/
     ├── config.js         讀取 .env、檢查設定
     ├── taxonomy.js        分類規則（可自行調整）
     ├── vaultScan.js        掃描動態分類既有名稱，維持 AI 命名一致
-    ├── extractContent.js  抓網頁、抽正文、抽文中圖片網址
+    ├── extractContent.js  抓網頁、抽正文
     ├── promptBuilder.js    組出給 API/CLI 共用的 prompt 內容
     ├── cliRunner.js         spawn 本機 agent CLI 的共用邏輯（分類、/ask 都會用到）
     ├── classify.js         依 CLASSIFIER_MODE 分派給 API 版或 CLI 版
@@ -295,11 +240,7 @@ obsidian-inbox-bot/
     ├── duplicateCheck.js    分類前比對來源網址，vault 裡已有同一篇文章就直接回報、不重複建立
     ├── relatedNotes.js      筆記寫入後跟相關的既有筆記互相補上雙向 [[wikilink]]
     ├── mocSync.js           動態分類（AI/學習/旅遊）重新產生 <分類>地圖.md 索引
-    ├── imageDownload.js      下載圖片、決定副檔名/檔名的共用邏輯（eagleImageArchive.js、imageEmbed.js 共用）
-    ├── eagleSync.js          把文中圖片匯入 Eagle App、依分類建同構資料夾（選用）
-    ├── eagleImageArchive.js  下載文中圖片、備份到獨立的 EAGLE_GIT_REMOTE（選用，不需要 Eagle App）
-    ├── imageEmbed.js         下載文中圖片進 vault 筆記所在資料夾，供 ![[檔名]] 內嵌顯示（選用）
-    ├── writeNote.js        寫入 .md 檔到 vault（含內嵌圖片、Eagle 圖片連結）
+    ├── writeNote.js        寫入 .md 檔到 vault
     ├── gitSyncFactory.js     「某資料夾自動 commit+push 到某 remote」的共用邏輯
     ├── gitSync.js           筆記寫入後自動 commit + push 到 VAULT_GIT_REMOTE（選用，底層用 gitSyncFactory.js）
     ├── noteIndex.js         讀取 vault 所有筆記、關鍵字比對找出相關筆記（給 /ask 用）

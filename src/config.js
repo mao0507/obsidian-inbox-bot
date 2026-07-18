@@ -121,31 +121,3 @@ console.log(
     : "[git-sync] 沒有設定 VAULT_GIT_REMOTE，筆記只會寫入本機 vault，不會同步到 git"
 );
 
-// Eagle 圖片管理整合：設定 EAGLE_ENABLED=true 後，文章裡的圖片會自動匯入 Eagle
-// （Eagle app 要在同一台電腦上開著），並在 Eagle 裡建立跟 Obsidian 一樣的分類資料夾結構。
-// 預設關閉——沒裝 Eagle 的人完全不受影響。
-export const EAGLE_ENABLED = (process.env.EAGLE_ENABLED || "").toLowerCase() === "true";
-export const EAGLE_BASE_URL = process.env.EAGLE_BASE_URL || "http://localhost:41595";
-
-console.log(
-  EAGLE_ENABLED
-    ? `[eagle-sync] 已啟用，文章裡的圖片會自動匯入 Eagle（${EAGLE_BASE_URL}）`
-    : "[eagle-sync] 沒有啟用 EAGLE_ENABLED，文章圖片不會匯入 Eagle"
-);
-
-// Eagle 圖片再獨立備份一份到你自己的 git repo（跟上面 Eagle App API 整合是兩件獨立的事，
-// 不需要開著 Eagle App 也能用：純粹把文章裡抓到的圖片本身下載下來、依 Obsidian 分類路徑
-// 建同構資料夾，commit + push 上去）。設定 EAGLE_GIT_REMOTE 才會啟用。
-export const EAGLE_GIT_REMOTE = process.env.EAGLE_GIT_REMOTE || "";
-export const EAGLE_GIT_BRANCH = process.env.EAGLE_GIT_BRANCH || "main";
-export const EAGLE_GIT_ENABLED = Boolean(EAGLE_GIT_REMOTE);
-
-// 圖片下載到本機的哪個資料夾。沒指定的話預設放在 vault 同一層的 "Eagle Images" 資料夾
-// （跟 vault 本身分開，避免這個資料夾的 git repo 跟 vault 的 git repo 互相干擾）。
-export const EAGLE_IMAGES_PATH = process.env.EAGLE_IMAGES_PATH || path.join(path.dirname(VAULT_PATH), "Eagle Images");
-
-console.log(
-  EAGLE_GIT_ENABLED
-    ? `[eagle-images-git] 已啟用，文章圖片會下載到「${EAGLE_IMAGES_PATH}」並同步到 ${EAGLE_GIT_REMOTE}（分支 ${EAGLE_GIT_BRANCH}）`
-    : "[eagle-images-git] 沒有設定 EAGLE_GIT_REMOTE，圖片不會備份到 git"
-);

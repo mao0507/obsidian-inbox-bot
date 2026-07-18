@@ -7,15 +7,15 @@ const execFileAsync = promisify(execFile);
 
 /**
  * 建立一組「把某個資料夾自動 commit + push 到某個 git remote」的邏輯。
- * gitSync.js（Obsidian vault 筆記）和 eagleImageArchive.js（Eagle 圖片備份）
- * 是兩個完全獨立的資料夾、兩個獨立的 remote，但同一套初始化/commit/push/錯誤處理邏輯，
- * 所以抽成這支共用 factory，避免兩邊各寫一份幾乎一樣的程式碼。
+ * 目前只有 gitSync.js（Obsidian vault 筆記）在用，抽成獨立 factory
+ * 是為了讓初始化/commit/push/錯誤處理邏輯跟呼叫端分開，方便日後有其他資料夾
+ * 也要同步到 git 時直接重複使用，不用重寫一份。
  *
  * @param {object} opts
  * @param {string} opts.repoPath 要同步的本機資料夾絕對路徑
  * @param {string} opts.remoteUrl git remote 網址，空字串代表不啟用
  * @param {string} [opts.branch] 要推到哪個分支，預設 main
- * @param {string} opts.label 印訊息時用的前綴（例如 "git-sync"、"eagle-images-git"）
+ * @param {string} opts.label 印訊息時用的前綴（例如 "git-sync"）
  * @param {string} [opts.defaultGitignore] 第一次 init 時，資料夾裡沒有 .gitignore 的話要建立的預設內容
  */
 export function createGitSync({ repoPath, remoteUrl, branch = "main", label, defaultGitignore }) {
@@ -36,7 +36,7 @@ export function createGitSync({ repoPath, remoteUrl, branch = "main", label, def
   // 確保資料夾存在、是個 git repo、有設定好 remote origin。
   // 只在第一次真正要同步時做初始化，成功一次後就不會重複做。
   // 任何一步失敗都只印警告、回傳 false，不會丟出例外——呼叫端的主要工作
-  // （寫筆記、存圖片）已經完成，git 同步只是附加功能，失敗不該讓主要工作被當成失敗。
+  // （寫筆記）已經完成，git 同步只是附加功能，失敗不該讓主要工作被當成失敗。
   async function ensureRepoReady() {
     if (ensured) return true;
     if (!enabled) return false;

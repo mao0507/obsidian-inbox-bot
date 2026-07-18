@@ -56,50 +56,11 @@ function buildFrontmatter({ title, tags, summary, sources, sourceChannel, reason
   return lines.join("\n");
 }
 
-// 把已經下載到 vault 同一個資料夾裡的圖片檔案，用 Obsidian 的 ![[檔名]] 內嵌語法
-// 直接插進筆記正文，打開筆記就看得到圖，不用點連結或另外開 Eagle。
-// 沒有內嵌圖片（Eagle 沒啟用/沒圖片/下載失敗）就不加這一段。
-function buildEmbeddedImagesSection(filenames) {
-  if (!filenames || filenames.length === 0) return "";
-  const embeds = filenames.map((f) => `![[${f}]]`).join("\n\n");
-  return `\n\n## 圖片\n\n${embeds}`;
-}
-
-// 把 Eagle App 同步回來的 eagle://item/<id> 深連結整理成一段 Markdown，附在筆記正文最後，
-// 這樣打開筆記就能直接點回 Eagle 裡對應的圖片（例如要去 Eagle 裡加標籤、整理）。
-// 沒有連結（Eagle 沒啟用/沒圖片/同步失敗）就不加這一段。
-function buildEagleLinksSection(eagleImages) {
-  if (!eagleImages || eagleImages.length === 0) return "";
-  const lines = ["## 在 Eagle 中開啟", ""];
-  eagleImages.forEach((link, i) => {
-    lines.push(`- [圖片 ${i + 1}](${link})`);
-  });
-  return `\n\n${lines.join("\n")}`;
-}
-
 /**
  * 把 classify() 的結果寫成 .md 檔到 vault 對應資料夾。
  * 檔名重複時自動加上流水號，絕不覆蓋既有筆記。
- *
- * embeddedImageFilenames（選用）：imageEmbed.js 下載到同一個資料夾裡的圖片檔名，
- * 會用 ![[檔名]] 直接內嵌顯示在筆記正文裡。
- * eagleImages（選用）：syncImagesToEagle() 回傳的 eagle://item/<id> 深連結，
- * 會附加一段「在 Eagle 中開啟」的連結清單。
- * 兩者互相獨立，都有的話會依序出現在筆記最後。
  */
-export function writeNote({
-  folder,
-  filename,
-  title,
-  tags,
-  summary,
-  body,
-  reasoning,
-  sources,
-  sourceChannel,
-  embeddedImageFilenames,
-  eagleImages,
-}) {
+export function writeNote({ folder, filename, title, tags, summary, body, reasoning, sources, sourceChannel }) {
   const dirAbs = vaultFilePath(...folder.split("/"));
   fs.mkdirSync(dirAbs, { recursive: true });
 
@@ -112,9 +73,7 @@ export function writeNote({
   }
 
   const frontmatter = buildFrontmatter({ title, tags, summary, sources, sourceChannel, reasoning });
-  const embeddedSection = buildEmbeddedImagesSection(embeddedImageFilenames);
-  const eagleLinksSection = buildEagleLinksSection(eagleImages);
-  const content = `${frontmatter}\n\n# ${title}\n\n${body.trim()}${embeddedSection}${eagleLinksSection}\n`;
+  const content = `${frontmatter}\n\n# ${title}\n\n${body.trim()}\n`;
 
   const fullPath = path.join(dirAbs, finalName);
   fs.writeFileSync(fullPath, content, "utf8");

@@ -17,18 +17,8 @@ export function startServer() {
   app.post("/api/submit", async (req, res) => {
     try {
       const { content } = req.body || {};
-      const {
-        duplicate,
-        duplicatePath,
-        draft,
-        result,
-        gitResult,
-        eagleResult,
-        eagleGitResult,
-        embedResult,
-        relatedResult,
-        mocResult,
-      } = await processIncomingContent(content, "web");
+      const { duplicate, duplicatePath, draft, result, gitResult, relatedResult, mocResult } =
+        await processIncomingContent(content, "web");
 
       if (duplicate) {
         res.json({ ok: true, duplicate: true, duplicatePath });
@@ -48,25 +38,6 @@ export function startServer() {
         git: gitResult?.attempted
           ? { pushed: !!gitResult.pushed, skipped: !!gitResult.skipped, error: gitResult.error || null }
           : null,
-        eagle: eagleResult?.attempted
-          ? { synced: !!eagleResult.synced, count: eagleResult.count || 0, error: eagleResult.error || null }
-          : null,
-        eagleGit: eagleGitResult?.attempted
-          ? {
-              pushed: !!eagleGitResult.pushed,
-              skipped: !!eagleGitResult.skipped,
-              downloaded: eagleGitResult.downloaded || 0,
-              failed: eagleGitResult.failed || 0,
-              error: eagleGitResult.error || null,
-            }
-          : null,
-        embed:
-          embedResult && ((embedResult.filenames && embedResult.filenames.length > 0) || embedResult.failed)
-            ? {
-                count: embedResult.filenames?.length || 0,
-                failed: embedResult.failed || 0,
-              }
-            : null,
         related: relatedResult?.linkedCount ? { linkedCount: relatedResult.linkedCount } : null,
         moc: mocResult?.updated ? { path: mocResult.mocPath } : null,
       });
