@@ -39,7 +39,8 @@ function unquoteYamlValue(raw) {
 
 // 陽春版 frontmatter 解析，只抓 writeNote.js 會寫的幾個欄位（title/summary/tags），
 // 格式跟 buildFrontmatter() 產生的一致，不是通用 YAML parser。
-function parseNote(raw) {
+// 有 export：vaultBrowser.js（/browse 指令）讀單篇筆記時也會共用這支，不用重複實作。
+export function parseNote(raw) {
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
   if (!match) {
     return { title: "", summary: "", tags: [], body: raw.trim() };

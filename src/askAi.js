@@ -23,9 +23,13 @@ function getAnthropicClient() {
 
 // 呼叫本機 agent CLI 或 Anthropic API 回答一個問題（純文字問答，不是結構化分類）。
 // 沿用 CLASSIFIER_MODE 決定要走哪一條路，跟分類功能用同一套授權/額度。
-export async function askAi(prompt) {
+//
+// cliShortInstruction：CLI 模式下搭配 prompt（從 stdin 餵進去）一起帶的短指令，
+// 預設是 /ask 用的「根據筆記回答問題」，其他呼叫端（例如 /notebook 摘要研究需求）
+// 可以傳自己的短指令進來，不用整份重寫一次 CLI/API 分派邏輯。
+export async function askAi(prompt, { cliShortInstruction = ASK_SHORT_INSTRUCTION, maxTokens = 1500 } = {}) {
   if (CLASSIFIER_MODE === "cli") {
-    const raw = await runCli(AGENT_CLI_COMMAND, [...AGENT_CLI_ARGS, ASK_SHORT_INSTRUCTION], prompt, {
+    const raw = await runCli(AGENT_CLI_COMMAND, [...AGENT_CLI_ARGS, cliShortInstruction], prompt, {
       timeoutMs: 90_000,
     });
     // claude / cursor-agent 的 --output-format json 會包一層 { result: "..." }，
@@ -39,7 +43,7 @@ export async function askAi(prompt) {
 
   const response = await getAnthropicClient().messages.create({
     model: CLAUDE_MODEL,
-    max_tokens: 1500,
+    max_tokens: maxTokens,
     messages: [{ role: "user", content: prompt }],
   });
   const textBlock = response.content.find((b) => b.type === "text");

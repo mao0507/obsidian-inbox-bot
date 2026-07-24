@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "vault:sync": "node scripts/git-sync.js"
+    "vault:sync": "node scripts/git-sync.js",
+    "notebook": "node scripts/notebook-research-cli.js"
   },
   "engines": {
     "node": ">=18"

@@ -121,3 +121,27 @@ console.log(
     : "[git-sync] 沒有設定 VAULT_GIT_REMOTE，筆記只會寫入本機 vault，不會同步到 git"
 );
 
+// NotebookLM 研究功能（/notebook 指令，選用）：需要另外裝 notebooklm-py CLI 並登入過
+// （npm install 不會裝這個，是獨立的 Python 套件，見 README「用 NotebookLM 做深度研究」）。
+// 這裡只偵測指令存不存在，不強制要求，找不到的話 /notebook 指令會回覆說明、不影響其他功能。
+export const NOTEBOOKLM_COMMAND = process.env.NOTEBOOKLM_COMMAND || "notebooklm";
+export const NOTEBOOKLM_ENABLED = commandExists(NOTEBOOKLM_COMMAND);
+
+// fast（預設）：幾十秒內完成，來源較少；deep：更完整但可能要好幾分鐘到半小時。
+const requestedResearchMode = (process.env.NOTEBOOKLM_RESEARCH_MODE || "fast").toLowerCase();
+export const NOTEBOOKLM_RESEARCH_MODE = requestedResearchMode === "deep" ? "deep" : "fast";
+
+// 登入 session 真的過期時，除了 `auth refresh`（只能延長「快過期」的 session），
+// notebooklm-py 還支援 `auth refresh --browser-cookies <browser>`：直接重新讀取
+// 這台電腦上這個瀏覽器目前的登入 cookie 來修復帳號路由，不用開一個新的互動登入視窗。
+// 前提是這個瀏覽器裡本來就要有一個還有效的 Google 登入 session（例如你平常都用
+// Chrome 開 Gmail/NotebookLM），才有東西可以重用——瀏覽器本身也登出的話這招沒用，
+// 還是得手動 `notebooklm login`。留空則不會嘗試這個 fallback。
+export const NOTEBOOKLM_LOGIN_BROWSER = process.env.NOTEBOOKLM_LOGIN_BROWSER || "chrome";
+
+console.log(
+  NOTEBOOKLM_ENABLED
+    ? `[notebooklm] 已偵測到「${NOTEBOOKLM_COMMAND}」指令，/notebook 研究功能可以使用（research mode: ${NOTEBOOKLM_RESEARCH_MODE}）`
+    : `[notebooklm] 找不到「${NOTEBOOKLM_COMMAND}」指令，/notebook 功能會停用（安裝步驟見 README）`
+);
+
