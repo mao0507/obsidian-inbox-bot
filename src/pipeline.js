@@ -86,13 +86,13 @@ export async function processIncomingContent(rawText, sourceChannel) {
  *    跟一般丟內容進來的筆記走同一套分類規則、同一份 taxonomy）
  * -> 寫入 vault -> finalizeWrittenNote 收尾（關聯連結、分類地圖、git 同步）
  */
-export async function processNotebookResearch(topic, sourceChannel) {
+export async function processNotebookResearch(topic, sourceChannel, { onStatus } = {}) {
   const cleanTopic = (topic || "").trim();
   if (!cleanTopic) {
     throw new Error("研究主題是空的");
   }
 
-  const { notebookId, reportText, effectiveTopic } = await researchTopic(cleanTopic);
+  const { notebookId, reportText, effectiveTopic } = await researchTopic(cleanTopic, { onStatus });
 
   // effectiveTopic 通常跟 cleanTopic 一樣；只有當使用者丟的是網址（例如 YouTube 連結）
   // 且 notebookResearch.js 成功理解了來源內容時，才會換成「這個來源實際在講什麼」的

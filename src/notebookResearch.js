@@ -355,24 +355,58 @@ async function tryAuthRefresh() {
   }
 }
 
+// 開瀏覽器走完整的 `notebooklm login` OAuth 流程——這是 tryAuthRefresh() 都救不回來
+// （真的完全過期）時最後的自動化手段。會在「跑這個 node 服務的那台機器」上跳出瀏覽器
+// 視窗，等使用者在瀏覽器裡完成 Google 登入後，CLI 才會結束、這裡才會 resolve。
+// 給 5 分鐘讓使用者有空完成登入，不是一般 CLI 指令的等級，逾時就當作失敗，
+// 交回 researchTopic() 用原本的 AUTH_EXPIRED_MESSAGE 提示使用者自己處理。
+const FULL_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+
+async function tryFullLogin() {
+  try {
+    await runNotebookLm(["login"], { timeoutMs: FULL_LOGIN_TIMEOUT_MS });
+    return true;
+  } catch (err) {
+    console.warn(`[notebooklm] 自動執行 notebooklm login 失敗：${err.message}`);
+    return false;
+  }
+}
+
 /**
  * 用 NotebookLM 針對一個主題做研究，回傳研究報告內容（Markdown 文字）與 notebook id。
- * 遇到登入過期時會自動試一次 notebooklm auth refresh + 整個流程重試一次
- * （見檔案開頭 AUTH_EXPIRED_MESSAGE 上面的說明——這只能救回「快過期」的情況，
- * 真的完全過期還是需要使用者自己跑 notebooklm login 開瀏覽器重新登入）。
+ * 遇到登入過期時會依序自動嘗試：
+ * 1. notebooklm auth refresh（輕量保活，只救得回「快過期」的情況）
+ * 2. 都沒用的話，直接跑一次完整的 notebooklm login（開瀏覽器走 Google 登入，
+ *    只適合這個服務本身就跑在使用者自己電腦上的情境——遠端 server 上看不到跳出來的瀏覽器）
+ * 每一步成功就重試一次整個研究流程；兩步都失敗才把 AUTH_EXPIRED_MESSAGE 丟出去，
+ * 請使用者自己到終端機跑 notebooklm login。
+ *
+ * onStatus（可選）：每個自動修復步驟開始時呼叫一次，帶一句中文說明，方便呼叫端
+ * （例如 bot.js）即時更新 Telegram 訊息，讓使用者知道現在卡在「等自動重新登入」。
  */
-export async function researchTopic(topic) {
+export async function researchTopic(topic, { onStatus } = {}) {
   try {
     return await runResearchFlow(topic);
   } catch (err) {
     if (!isAuthExpiredError(err)) {
       throw err;
     }
+
     console.warn("[notebooklm] 偵測到登入過期，自動嘗試 auth refresh 後重試一次...");
+    onStatus?.("🔑 偵測到 NotebookLM 登入過期，嘗試自動 refresh 登入狀態...");
     const refreshed = await tryAuthRefresh();
-    if (!refreshed) {
+    if (refreshed) {
+      return runResearchFlow(topic);
+    }
+
+    console.warn("[notebooklm] auth refresh 沒用，改嘗試完整的 notebooklm login...");
+    onStatus?.("🔑 自動 refresh 沒用，正在開瀏覽器重新登入，請到跑這個服務的電腦上完成 Google 登入（最多等 5 分鐘）...");
+    const loggedIn = await tryFullLogin();
+    if (!loggedIn) {
       throw err;
     }
+
+    onStatus?.("✅ 重新登入成功，重新開始研究任務...");
     return runResearchFlow(topic);
   }
 }

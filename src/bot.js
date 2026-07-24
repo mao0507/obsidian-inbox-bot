@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { Telegraf, Markup } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "./config.js";
 import { processIncomingContent, processNotebookResearch } from "./pipeline.js";
@@ -261,7 +262,14 @@ export function startBot() {
 
     try {
       const { draft, result, notebookId, gitResult, relatedResult, mocResult } = await enqueueTask(
-        () => processNotebookResearch(topic, "telegram-notebook"),
+        () =>
+          processNotebookResearch(topic, "telegram-notebook", {
+            // 登入過期時 notebookResearch.js 會自動嘗試 refresh / login 重新登入，
+            // 這裡把每個步驟的狀態即時改到同一則處理中訊息上，讓使用者知道不是卡住。
+            onStatus: (text) => {
+              ctx.telegram.editMessageText(ctx.chat.id, processingMsg.message_id, undefined, text).catch(() => {});
+            },
+          }),
         {
           onStart: async () => {
             stopTyping = startTypingLoop(ctx);
@@ -312,6 +320,33 @@ export function startBot() {
     } finally {
       stopTyping();
     }
+  });
+
+  // /notebooklm_login：伺服器跑著的時候也能直接觸發 `notebooklm login`，不用另外開終端機。
+  // 這是互動式 OAuth 流程，會在「跑這個 node 服務的那台機器」上跳出瀏覽器視窗，
+  // 所以只適合本機/自己電腦上跑的情境；stdout/stderr 完整轉貼回 Telegram 方便照著網址操作。
+  bot.command("notebooklm_login", async (ctx) => {
+    if (!NOTEBOOKLM_ENABLED) {
+      await ctx.reply(`⚠️ 找不到「${NOTEBOOKLM_COMMAND}」指令，請先安裝 notebooklm-py CLI（見 README）。`);
+      return;
+    }
+
+    const msg = await ctx.reply("🔑 正在執行 notebooklm login，跑這個服務的機器上應該會跳出瀏覽器登入畫面，請稍候...");
+
+    const child = spawn(NOTEBOOKLM_COMMAND, ["login"], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    child.stdout.on("data", (d) => (output += d.toString()));
+    child.stderr.on("data", (d) => (output += d.toString()));
+
+    child.on("error", async (err) => {
+      await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ 無法執行「${NOTEBOOKLM_COMMAND} login」：${err.message}`);
+    });
+
+    child.on("close", async (code) => {
+      const tail = output.trim().slice(-3000) || "(無輸出)";
+      const status = code === 0 ? "✅ 登入完成" : `❌ 登入失敗（結束代碼 ${code}）`;
+      await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `${status}\n\n${tail}`).catch(() => {});
+    });
   });
 
   // /browse：列出目前 vault 裡的分類（vault 根目錄下的資料夾），可以用按鈕一路點下去查
