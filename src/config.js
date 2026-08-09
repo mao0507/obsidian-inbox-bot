@@ -21,7 +21,6 @@ if (!fs.existsSync(VAULT_PATH) || !fs.statSync(VAULT_PATH).isDirectory()) {
 
 export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-5";
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-export const PORT = Number(process.env.PORT || 3838);
 
 // Telegram 白名單：只有這些 user ID 可以傳訊息給 bot、收到 bot 的回覆。
 // .env 用逗號分隔多個 ID，例如 TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
