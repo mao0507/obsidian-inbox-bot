@@ -19,12 +19,24 @@ description: 用 NotebookLM 針對一個主題或網址（包含 YouTube 影片�
 
 這個功能依賴獨立安裝的 `notebooklm-py` CLI（不是這個 repo 的 npm 依賴），且要先登入過 Google 帳號。如果還沒裝好，執行下面的指令時會直接印出清楚的錯誤訊息告訴你怎麼裝（見 repo 根目錄 `README.md`「用 NotebookLM 做深度研究」章節），照著引導使用者去裝，不用自己猜測安裝步驟。
 
+## YouTube 連結的特別處理
+
+如果使用者這次輸入裡含有 YouTube 連結（`youtube.com` 或 `youtu.be`，包含短網址），在執行下面「怎麼執行」的 `notebook-research-cli.js` 之前，先用 `claude-video-vision` plugin（`video-perception` skill / `video_watch` MCP 工具）把影片內容整理成可以直接拿去給 NotebookLM 研究的文字：
+
+1. 用 claude-video-vision 觀看整支影片（使用者有指定片段或問題的話就照那個範圍），取出逐字稿（含時間戳）跟畫面重點。
+2. 把這些內容整理成一段清楚的研究說明文字（主題、重點、關鍵字），這段文字就是「research-ready」的內容，不是原始網址。
+3. 執行「怎麼執行」的指令時，把這段整理好的文字（不是原始 YouTube 網址）當作 `notebook-research-cli.js` 的引數傳進去。
+
+這麼做是因為 NotebookLM 自己讀 YouTube 來源常常只能抓到官方字幕（沒字幕的影片就完全抓不到內容），claude-video-vision 能連畫面內容、非官方字幕/語音轉文字一起處理，先整理過再交給 notebook-research 效果更完整。
+
+如果偵測不到 claude-video-vision（使用者還沒裝這個 plugin，或缺 ffmpeg/yt-dlp/轉錄後端），跳過上面這幾步，直接把原始 YouTube 網址照「怎麼執行」原本的方式傳給 `notebook-research-cli.js`——`src/notebookResearch.js` 自己也有 fallback（把網址加進 notebook 當保證來源、再問 NotebookLM 自己「這是在講什麼」），不會因為少了這層預處理就整個失敗，只是效果可能不如先用 claude-video-vision 整理過完整。
+
 ## 怎麼執行
 
 在這個 repo 的根目錄（package.json 所在的資料夾）執行：
 
 ```bash
-node scripts/notebook-research-cli.js "<使用者的研究主題或網址，原封不動照使用者說的填進去，不要自己先摘要或改寫>"
+node scripts/notebook-research-cli.js "<使用者的研究主題或網址，原封不動照使用者說的填進去，不要自己先摘要或改寫；YouTube 連結請先看上面「YouTube 連結的特別處理」>"
 ```
 
 例如：
@@ -34,7 +46,9 @@ node scripts/notebook-research-cli.js "https://www.youtube.com/watch?v=aR97E7aKE
 node scripts/notebook-research-cli.js "台灣離岸風電現況"
 ```
 
-不需要（也不應該）自己先解讀網址內容或改寫使用者的主題——這支腳本背後（`src/notebookResearch.js`）已經會自動處理：
+（第一個例子如果偵測到 claude-video-vision 可用，應該先整理成影片內容摘要再傳進去，不是直接丟原始網址——見上面「YouTube 連結的特別處理」。）
+
+除了 YouTube 連結的例外處理之外，不需要（也不應該）自己先解讀網址內容或改寫使用者的主題——這支腳本背後（`src/notebookResearch.js`）已經會自動處理：
 
 - 主題是網址（例如 YouTube）：先把網址加進 NotebookLM notebook 當作保證來源、等它處理完，再問 NotebookLM 自己「這個來源在講什麼」來理解內容，不會憑網址字面亂猜。
 - 主題是一般文字：先用本機 Claude CLI/API 把使用者可能簡短模糊的輸入摘要成清楚的研究說明，再拿去做網路研究。
