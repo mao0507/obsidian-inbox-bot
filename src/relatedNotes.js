@@ -1,4 +1,3 @@
-import { vault } from "./app.js";
 import { FLAT_CATEGORIES, DYNAMIC_TAXONOMY } from "./taxonomy.js";
 
 // 之前完全沒有自動建立筆記間的關聯，筆記分類完就各自獨立，
@@ -50,7 +49,7 @@ function addRelatedLink(content, targetBasename) {
  * 找出判斷為相關的既有筆記，雙向補上 [[wikilink]]（新筆記本身 + 每篇既有筆記都各補一條）。
  * 回傳 { linkedCount }：這次總共連結的既有筆記數，給呼叫端顯示狀態用。
  */
-export function syncRelatedNotes({ folder, filename, tags }) {
+export function syncRelatedNotes(vault, { folder, filename, tags }) {
   const dynamic = isDynamicFolder(folder);
   const flat = isFlatFolder(folder);
   if (!dynamic && !flat) return { linkedCount: 0 };

@@ -11,7 +11,7 @@
 // 也能觸發跟 Telegram bot 一樣的研究流程，不需要另外跑 Telegram。
 // 依主題複雜度、研究模式（NOTEBOOKLM_RESEARCH_MODE），這支腳本可能要跑幾十秒到
 // 幾十分鐘，執行時請耐心等待，不要中途取消。
-import { processNotebookResearch } from "../src/pipeline.js";
+import { pipeline } from "../src/app.js";
 import { NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "../src/config.js";
 
 const topic = process.argv.slice(2).join(" ").trim();
@@ -52,7 +52,7 @@ function printResult(topicInput, outcome) {
 }
 
 try {
-  const outcome = await processNotebookResearch(topic, "claude-code-skill");
+  const outcome = await pipeline.processNotebookResearch(topic, "claude-code-skill");
   printResult(topic, outcome);
   process.exit(0);
 } catch (err) {

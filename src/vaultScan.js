@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import { vault } from "./app.js";
 import { DYNAMIC_TAXONOMY } from "./taxonomy.js";
 
 function listDirs(absPath) {
@@ -21,7 +20,7 @@ function listDirs(absPath) {
 // 只有「完整走到規定的階層深度」的路徑才會被視為有效既有名稱，
 // 避免舊分類結構留下的殘破空資料夾（例如改版前的 "AI/教學文章"）
 // 被誤判成新結構裡的名稱。
-export function getDynamicFolderExamples() {
+export function getDynamicFolderExamples(vault) {
   const lines = [];
 
   for (const [top, cfg] of Object.entries(DYNAMIC_TAXONOMY)) {

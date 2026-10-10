@@ -1,5 +1,3 @@
-import { vault } from "./app.js";
-
 // 同一個連結被丟進來兩次時（使用者忘記自己丟過、或分享訊息被轉傳兩次），
 // 之前沒有任何檢查，會直接各自生一篇內容幾乎一樣的新筆記
 //（就是 旅遊/日本/北海道 底下那兩組重複筆記的成因）。
@@ -44,7 +42,7 @@ export function normalizeUrl(raw) {
  * 找到就回傳相對路徑，找不到回傳 null。
  * 每次即時掃描（不做常駐 cache），才不會跟使用者手動在 Obsidian 裡增刪筆記的狀態不同步。
  */
-export function findDuplicateNote(urls) {
+export function findDuplicateNote(vault, urls) {
   if (!urls || urls.length === 0) return null;
   const normalizedTargets = new Set(urls.map(normalizeUrl).filter(Boolean));
   if (normalizedTargets.size === 0) return null;

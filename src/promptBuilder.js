@@ -1,8 +1,6 @@
 import { FLAT_CATEGORIES, NESTED_TAXONOMY, RULES, renderTaxonomyTree } from "./taxonomy.js";
-import { getDynamicFolderExamples } from "./vaultScan.js";
 
-export function buildSystemPrompt(sourceChannel) {
-  const dynamicExamples = getDynamicFolderExamples();
+export function buildSystemPrompt(sourceChannel, dynamicExamples = "") {
 
   return `你是使用者的 Obsidian 知識庫管家。使用者會透過 Telegram 或網頁表單丟內容給你（網址、文章、程式碼片段、bug 記錄、想法等），你要判斷分類、補齊缺漏資訊，整理成一篇乾淨的筆記。
 

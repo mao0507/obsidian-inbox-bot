@@ -1,8 +1,7 @@
 import { Telegraf } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "./config.js";
-import { processIncomingContent, processNotebookResearch } from "./pipeline.js";
 import { answerFromVault } from "./askVault.js";
-import { notebook } from "./app.js";
+import { notebook, pipeline } from "./app.js";
 import { enqueueTask, queuePendingCount, isProcessing } from "./taskQueue.js";
 import { renderFolderView, renderNoteView, resolveBrowseToken } from "./browseView.js";
 
@@ -166,7 +165,7 @@ export function startBot() {
     try {
       const outcome = await enqueueTask(
         () =>
-          processNotebookResearch(topic, "telegram-notebook", {
+          pipeline.processNotebookResearch(topic, "telegram-notebook", {
             // 登入過期時 notebookResearch.js 會自動嘗試 refresh / login 重新登入，
             // 這裡把每個步驟的狀態即時改到同一則處理中訊息上，讓使用者知道不是卡住。
             onStatus: (text) => editStatus(ctx, processingMsg, text),
@@ -251,7 +250,7 @@ export function startBot() {
     const stopTyping = startTypingLoop(ctx);
 
     try {
-      const outcome = await processIncomingContent(text, "telegram");
+      const outcome = await pipeline.processIncomingContent(text, "telegram");
 
       if (outcome.duplicate) {
         await editStatus(

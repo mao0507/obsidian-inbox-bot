@@ -1,4 +1,3 @@
-import { vault } from "./app.js";
 import { DYNAMIC_TAXONOMY } from "./taxonomy.js";
 
 // 之前分類地圖（<類別>地圖.md）完全要手動維護——動態分類（AI / 學習 / 旅遊）
@@ -15,7 +14,7 @@ import { DYNAMIC_TAXONOMY } from "./taxonomy.js";
 // 手動加的內容下次自動重新產生時會被覆蓋掉。
 
 // 把 top 底下所有筆記依「所在資料夾」分組：[{ parts: ["ClaudeCode","教學文章"], files: ["筆記A", ...] }]
-function groupNotesByFolder(top, mocFilename) {
+function groupNotesByFolder(vault, top, mocFilename) {
   const byDir = new Map();
   for (const note of vault.listNotes(top)) {
     const parts = note.path.split("/").slice(1); // 去掉 top 本身
@@ -36,11 +35,11 @@ function groupNotesByFolder(top, mocFilename) {
  * 不是這三個動態分類之一就直接跳過、什麼都不做。資料夾底下完全沒有筆記時也跳過，
  * 不會生出一份空地圖。
  */
-export function regenerateMoc(top) {
+export function regenerateMoc(vault, top) {
   if (!DYNAMIC_TAXONOMY[top]) return { updated: false };
 
   const mocFilename = `${top}地圖.md`;
-  const groups = groupNotesByFolder(top, mocFilename);
+  const groups = groupNotesByFolder(vault, top, mocFilename);
 
   if (groups.length === 0) return { updated: false };
 
@@ -76,7 +75,7 @@ export function regenerateMoc(top) {
  * （例如 "AI/ClaudeCode/教學文章"），只有第一段對應到動態分類時才會重新產生地圖，
  * 其他分類（收件匣/知識庫/專案...）直接跳過、回傳 { updated: false }。
  */
-export function syncMocForFolder(folder) {
+export function syncMocForFolder(vault, folder) {
   const top = folder.split("/")[0];
-  return regenerateMoc(top);
+  return regenerateMoc(vault, top);
 }
