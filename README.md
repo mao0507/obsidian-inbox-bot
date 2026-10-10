@@ -6,7 +6,7 @@
 
 ## 需要準備的東西
 
-1. **Node.js 18 以上**：<https://nodejs.org> 下載 LTS 版安裝。安裝完在終端機打 `node -v` 確認。
+1. **Node.js 18 以上 + pnpm**：<https://nodejs.org> 下載 LTS 版安裝，再執行 `corepack enable pnpm` 啟用 pnpm。安裝完在終端機打 `node -v`、`pnpm -v` 確認。
 2. **分類用的 AI，二選一**：
    - **本機已裝的 agent CLI（預設、推薦）**：Claude Code CLI（`claude`）或 Cursor CLI（`cursor-agent`）擇一裝好、登入過就行，什麼都不用多做——程式啟動時會自動偵測到，直接用它做分類，不用另外申請/付費 API key。兩個都裝的話預設優先用 `claude`。
    - **Anthropic API key**：兩個 CLI 都沒裝的話，去 <https://console.anthropic.com/settings/keys> 申請一把，用量計費，分類/整理一篇內容通常幾分錢台幣等級的費用。
@@ -14,18 +14,18 @@
    - Telegram 搜尋 `@BotFather` → 傳 `/newbot` → 照指示取名 → 拿到一組 `123456:ABC-xxxxxxxx` 格式的 token。
    - 之後在 Telegram 找到你剛建立的 bot，按「開始」或傳 `/start` 給它，才能開始跟它聊天。
    - **強烈建議設定白名單**，不然任何人只要知道這個 bot 的用戶名都能傳訊息觸發分類，見下面「限制 Telegram 使用者」。
-4. **（要丟 Notion 頁面連結的話）Playwright 瀏覽器核心**：`npm install` 之後多跑一次 `npx playwright install chromium`（見下面「安裝步驟」）。不丟 Notion 連結的話可以跳過，其他網址不受影響。
+4. **（要丟 Notion 頁面連結的話）Playwright 瀏覽器核心**：`pnpm install` 之後多跑一次 `pnpm exec playwright install chromium`（見下面「安裝步驟」）。不丟 Notion 連結的話可以跳過，其他網址不受影響。
 
 ## 安裝步驟
 
 1. 打開終端機，切到這個資料夾：
    ```bash
    cd obsidian-inbox-bot
-   npm install
+   pnpm install
    ```
    如果會丟 Notion 頁面連結進來，再多跑一次（下載 Chromium，約幾百 MB，只需跑一次）：
    ```bash
-   npx playwright install chromium
+   pnpm exec playwright install chromium
    ```
 2. 複製設定檔並填入你的資訊：
    ```bash
@@ -37,22 +37,29 @@
 
    分類用的 AI 預設會自動偵測（`CLASSIFIER_MODE=auto`）：電腦上找得到 `claude` 指令就直接用，不用填 `ANTHROPIC_API_KEY`。
    找不到的話會退回 API key 模式，這時才需要填 `ANTHROPIC_API_KEY`。想強制指定其中一種，把 `CLASSIFIER_MODE` 改成 `cli` 或 `api` 即可。
-3. 啟動：
+3. 註冊成背景服務（登入電腦後自動啟動、掛掉自動重啟，Windows / macOS / Linux 都適用）：
    ```bash
-   npm start
+   pnpm run service:install
    ```
-   看到這樣代表成功：
+   Windows 也可以直接雙擊 `啟動.cmd`，它會先 `pnpm install` 再執行上面這行。
+   之後不用再開終端機。常用指令：
+
+   | 指令 | 用途 |
+   |---|---|
+   | `pnpm run service:logs` | 即時看 log（Ctrl+C 離開，不會停掉服務） |
+   | `pnpm run service:restart` | 改完 `.env` 或更新程式後重新啟動 |
+   | `pnpm run service:uninstall` | 停止並移除開機啟動 |
+
+   log 裡看到這兩行代表成功：
    ```
    [classifier] 使用本機 agent CLI「claude」做分類，不需要 API key
    [telegram] bot 已啟動（polling 模式）
-   [web] 打開 http://localhost:3838 開始丟內容
    ```
-   （如果是退回 API key 模式，第一行會改成 `[classifier] 使用 Anthropic API（claude-sonnet-4-5）做分類`）
+   `service:install` 也會檢查 git、yt-dlp、notebooklm 這幾個外部工具，缺少的會印出該作業系統的安裝指令（不會自動安裝，缺了只是對應功能停用）。
+   換了 Node 版本或搬動專案資料夾之後，重跑一次 `pnpm run service:install`。
 
 ## 怎麼用
 
-- **網頁**：瀏覽器打開 <http://localhost:3838>，貼上文字或網址，按送出。手機也可以連（前提是手機和電腦在同一個 Wi-Fi，網址要換成電腦的區網 IP，例如 `http://192.168.1.23:3838`）。
-  - 如果啟動時 `PORT`（預設 3838）已經被別的程式占用（最常見是前一次沒關乾淨的 `npm start`/`npm run dev` 還在背景跑），程式會自動找出並強制關閉占用它的 process，再重新監聽一次，終端機會印出對應訊息。如果清除後還是無法監聽，才會真的報錯結束。
 - **Telegram**：直接傳訊息或網址給你的 bot，它會回覆分類結果和存檔位置。在聊天輸入框打 `/` 會跳出指令選單（`/ask`、`/whoami`，裝了 notebooklm CLI 的話還有 `/notebook`），這份選單是啟動時自動設定的，只會列出「現在真的能用」的指令。
 
 分類完成後，直接去 Obsidian 打開對應資料夾，就會看到新筆記（如果 Obsidian 正開著，會自動偵測到新檔案）。
@@ -77,7 +84,7 @@
 
 動態分類（`AI`、`學習`、`旅遊`）裡由 AI 自訂的那一層，不用先在 `taxonomy.js` 裡把所有可能值列出來，AI 會依內容自己建立對應的子資料夾。為了避免同一個工具/主題/地區每次被取成不同的名稱變體（例如 `ClaudeCode` 跟 `Claude Code` 分開兩個資料夾），`src/vaultScan.js` 每次分類前會先掃描 vault 裡動態分類已經存在的名稱，放進 prompt 讓 AI 優先重複使用既有名稱。
 
-改完存檔、重新 `npm start` 即可生效。
+改完存檔、重新 `pnpm start` 即可生效。
 
 ## 自動去重、關聯連結、分類地圖
 
@@ -92,23 +99,16 @@
 改程式碼後不想每次手動關掉再重開終端機，開發時用：
 
 ```
-npm run dev
+pnpm dev
 ```
 
-這是用 Node 內建的 `--watch`（`node --watch src/index.js`），`src/` 底下任何檔案存檔都會自動重啟整個程式（web server + Telegram bot 一起重開），不用額外裝套件。缺點：
+這是用 Node 內建的 `--watch`（`node --watch src/index.js`），`src/` 底下任何檔案存檔都會自動重啟整個程式（Telegram bot 跟著重開），不用額外裝套件。缺點：
 
 - 重啟的瞬間 Telegram bot 會斷線再重連，處理到一半的訊息可能要重送。
-- 跟平常一樣，同一時間只能跑一個（另開一個 `npm run dev` 或 `npm start` 會撞成 Telegram 409 Conflict，見下面「限制 Telegram 使用者」前的說明）。
+- 跟平常一樣，同一時間只能跑一個（另開一個 `pnpm dev` 或 `pnpm start` 會撞成 Telegram 409 Conflict，見下面「限制 Telegram 使用者」前的說明）。
 - 需要 Node 18.11 以上（`node --version` 確認）。
 
-正式使用（不是在改程式碼）還是用 `npm start`，沒有監看檔案的額外負擔。
-
-## 保持背景執行（選用）
-
-不想一直開著終端機視窗的話：
-
-- **Windows**：用工作排程器（Task Scheduler）設一個開機啟動的工作，動作是執行 `node`，參數是 `src\index.js`，起始位置設成這個資料夾。或安裝 [pm2](https://pm2.keymetrics.io/)：`npm install -g pm2` → `pm2 start src/index.js --name obsidian-bot` → `pm2 save`。
-- **macOS**：用 `pm2`，或寫一個 `launchd` plist 開機啟動。
+正式使用（不是在改程式碼）用 `pnpm run service:install` 註冊的背景服務。開發前先 `pnpm run service:uninstall` 停掉背景服務，不然兩個同時跑會撞成 Telegram 409 Conflict。
 
 ## 用本機 agent CLI 做分類（不用 API key）
 
@@ -186,7 +186,7 @@ notebooklm login                       # 第一次會下載 Chromium，接著開
 notebooklm auth check --test --json    # 確認成功，應該回傳 "status": "ok"
 ```
 
-裝好、登入過之後，重新啟動這支 bot（`npm start`），啟動訊息會多一行：
+裝好、登入過之後，重新啟動這支 bot（`pnpm start`），啟動訊息會多一行：
 
 ```
 [notebooklm] 已偵測到「notebooklm」指令，/notebook 研究功能可以使用（research mode: fast）
@@ -264,7 +264,7 @@ notebooklm login
 node scripts/notebook-research-cli.js "台灣離岸風電現況"
 node scripts/notebook-research-cli.js "https://www.youtube.com/watch?v=xxxxxxxxxxx"
 # 或用 npm script（注意中間要加 --）：
-npm run notebook -- "台灣離岸風電現況"
+pnpm run notebook -- "台灣離岸風電現況"
 ```
 
 結果一樣是研究完直接寫進 Obsidian vault、印出存檔位置；跟 Telegram 的差別只在觸發管道，底層邏輯（`src/pipeline.js` 的 `processNotebookResearch`）完全共用，行為（網址先理解內容、一般主題先摘要需求、分類規則、關聯連結、git 同步）都一致。
@@ -297,7 +297,7 @@ VAULT_GIT_BRANCH=main
 **手動同步**：如果你直接在 Obsidian 裡改了東西、不想等下一篇新筆記才順便同步，可以手動跑：
 
 ```
-npm run vault:sync
+pnpm run vault:sync
 ```
 
 ## 限制 Telegram 使用者
@@ -311,7 +311,7 @@ Telegram bot 預設沒有身分驗證，只要知道 bot 的用戶名，任何�
    TELEGRAM_ALLOWED_USER_IDS=123456789
    ```
    要開放給多人用，用逗號分隔多個 ID：`TELEGRAM_ALLOWED_USER_IDS=123456789,987654321`
-4. 重新 `npm start`。之後只有清單裡的 user ID 能傳訊息給 bot；不在清單裡的人傳訊息會收到一句「你沒有權限」的回覆（同時附上他們自己的 user ID，不會處理內容、也不會寫進你的 vault）。
+4. 重新 `pnpm start`。之後只有清單裡的 user ID 能傳訊息給 bot；不在清單裡的人傳訊息會收到一句「你沒有權限」的回覆（同時附上他們自己的 user ID，不會處理內容、也不會寫進你的 vault）。
 
 沒有設定白名單的話，每次啟動都會在終端機看到警告，提醒你目前是完全公開的狀態。
 
@@ -373,11 +373,11 @@ obsidian-inbox-bot/
     ├── pipeline.js         串起以上流程（含 processNotebookResearch）
     └── bot.js              Telegram bot（含 /ask、/browse、/notebook 指令）
 
-test/                     `npm test`（node:test，不需要 .env）
+test/                     `pnpm test`（node:test，不需要 .env）
 
 scripts/
-  ├── git-sync.js                  手動觸發一次 vault git 同步（npm run vault:sync）
-  └── notebook-research-cli.js     命令列直接觸發一次 NotebookLM 研究（npm run notebook -- "..."），給 Claude Code skill 用
+  ├── git-sync.js                  手動觸發一次 vault git 同步（pnpm run vault:sync）
+  └── notebook-research-cli.js     命令列直接觸發一次 NotebookLM 研究（pnpm run notebook -- "..."），給 Claude Code skill 用
 
 .claude/
   └── skills/
