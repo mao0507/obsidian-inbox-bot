@@ -88,12 +88,16 @@ export function notebookIdOf(note) {
   return note.frontmatter?.notebook_id || note.body.match(NOTEBOOK_ID)?.[1] || null;
 }
 
+// 改版前的研究筆記沒有 type 欄位，只能從收件管道認出來（/notebook 指令、Claude Code skill）。
+const RESEARCH_CHANNELS = new Set(["telegram-notebook", "claude-code-skill"]);
+export const isLegacyResearchNote = (note) => RESEARCH_CHANNELS.has(note.frontmatter?.via || "");
+
 /** vault 裡的研究筆記（新的 type: research，或舊的 via: telegram-notebook / claude-code-skill）。 */
 export function researchNotesIn(vault) {
   return vault
     .listNotes()
     .filter(
-      (n) => n.frontmatter?.type === "research" || /^(telegram-notebook|claude-code-skill)$/.test(n.frontmatter?.via || "")
+      (n) => n.frontmatter?.type === "research" || isLegacyResearchNote(n)
     )
     .map((n) => ({ path: n.path, title: n.title, topic: n.frontmatter?.topic || "", notebookId: notebookIdOf(n) }));
 }

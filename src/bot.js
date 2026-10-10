@@ -354,9 +354,7 @@ export function startBot() {
     const pending = repliedPlanId && pendingPlans.get(repliedPlanId);
     if (pending) {
       const planMsg = { message_id: repliedPlanId };
-      await ctx.telegram
-        .editMessageText(ctx.chat.id, repliedPlanId, undefined, `🧭 依你的意見重新規劃中...\n\n${formatPlan(pending.plan)}`)
-        .catch(() => {});
+      await editStatus(ctx, planMsg, `🧭 依你的意見重新規劃中...\n\n${formatPlan(pending.plan)}`);
       showPlan(ctx, planMsg, { ...pending, previous: pending.plan, feedback: text });
       return;
     }

@@ -181,8 +181,12 @@ function renderNoteFile(note) {
  * 例如 "技術/前端框架/Vue/Vue 生命週期.md" -> [[技術/前端框架/Vue/Vue 生命週期|Vue 生命週期]]
  */
 export function wikiLink(relPath) {
-  const target = relPath.replace(/\.md$/i, "");
-  return `[[${target}|${target.slice(target.lastIndexOf("/") + 1)}]]`;
+  return `[[${relPath.replace(/\.md$/i, "")}|${basenameOf(relPath)}]]`;
+}
+
+/** 筆記路徑的檔名（不含資料夾與 .md）。 */
+export function basenameOf(relPath) {
+  return relPath.slice(relPath.lastIndexOf("/") + 1).replace(/\.md$/i, "");
 }
 
 function toRel(...parts) {

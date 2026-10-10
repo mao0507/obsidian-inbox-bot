@@ -58,6 +58,8 @@
    `service:install` 也會檢查 git、yt-dlp、notebooklm 這幾個外部工具，缺少的會印出該作業系統的安裝指令（不會自動安裝，缺了只是對應功能停用）。
    換了 Node 版本或搬動專案資料夾之後，重跑一次 `pnpm run service:install`。
 
+   **Linux 注意**：systemd user service 預設只在你登入之後才啟動。想要開機就啟動、不必先登入，執行一次 `sudo loginctl enable-linger $USER`。
+
 ## 怎麼用
 
 - **Telegram**：直接傳訊息或網址給你的 bot，它會回覆分類結果和存檔位置。在聊天輸入框打 `/` 會跳出指令選單（`/ask`、`/whoami`，裝了 notebooklm CLI 的話還有 `/notebook`），這份選單是啟動時自動設定的，只會列出「現在真的能用」的指令。

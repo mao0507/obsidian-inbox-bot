@@ -1,7 +1,7 @@
 import path from "node:path";
 import { findUrls } from "./extractContent.js";
 import { findDuplicateNote, normalizeUrl } from "./duplicateCheck.js";
-import { syncRelatedNotes } from "./relatedNotes.js";
+import { syncRelatedNotes, relatedSectionOf } from "./relatedNotes.js";
 import { syncMocForFolder } from "./mocSync.js";
 import { createNoteDrafter } from "./noteDrafter.js";
 import { buildSystemPrompt, buildUserPrompt } from "./promptBuilder.js";
@@ -22,6 +22,16 @@ import {
 
 const MAX_URLS_PER_MESSAGE = 3;
 
+// 筆記型態由流程決定，不交給 AI：有影片 -> video；有網址 -> article（抓不到也算）；純文字 -> note
+const noteTypeOf = (fetched, urls) => (fetched.some((f) => f.kind === "video") ? "video" : urls.length ? "article" : "note");
+const fetchErrorsOf = (fetched) => fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error }));
+
+// 舊筆記重建時沿用：原本的收件管道、最早的收錄日期
+function inheritedFrom(oldNotes) {
+  const dates = oldNotes.map((n) => n.frontmatter.date_added).filter(Boolean).sort();
+  return { sourceChannel: oldNotes[0].frontmatter.via || "migration", dateAdded: dates[0] };
+}
+
 /**
  * Pipeline module：一般收件與 /notebook 研究的完整流程，依賴全部由外部注入
  * （正式環境的接線在 app.js；測試用暫存 vault + 假的 ai / fetcher / notebook / git）。
@@ -34,6 +44,16 @@ const MAX_URLS_PER_MESSAGE = 3;
  * @param {{ commitAndPush: (message: string) => Promise<object> }} deps.git
  */
 export function createPipeline({ vault, ai, fetcher, notebook, git }) {
+  // 抓前幾個網址（一則訊息貼一大串網址時不全部抓）
+  async function fetchAll(urls) {
+    const fetched = [];
+    for (const url of urls.slice(0, MAX_URLS_PER_MESSAGE)) {
+      // eslint-disable-next-line no-await-in-loop
+      fetched.push(await fetcher.fetch(url));
+    }
+    return fetched;
+  }
+
   /**
    * 筆記寫進 vault 之後的共用收尾步驟：
    * -> 跟相關的既有筆記互相補上雙向 [[wikilink]]
@@ -75,15 +95,18 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
   // 拿不到才用 AI 從內文找到的（AI 被要求看不出來就留空，不要猜）。
   // fetcher 的降級說明（例如影片沒有字幕）放在筆記最上方，回顧時一眼看得出這篇資訊不完整。
   // 分類：tag 一律經過詞彙表正規化（同一個東西不同寫法 → 同一個資料夾），資料夾由分類樹組出；
-  // 大/中項目不在分類樹裡就退回收件匣。收件匣不分 tag 資料夾，也不為它建立主 tag。
+  // 大/中項目不在分類樹裡就退回收件匣。收件匣（含退回的）不分 tag 資料夾，也不為它建立主 tag。
   function classify(draft, vocab) {
-    const needsTagFolder = !TAXONOMY[draft.category]?.noTagLevel;
+    const { category, subcategory } = draft;
+    // 先確認大/中項目合法（主 tag 用佔位值），不合法就不要把 AI 亂取的主 tag 寫進詞彙表
+    const categoryOk = buildFolder({ category, subcategory, primaryTag: "_" }) !== null;
+    const needsTagFolder = categoryOk && !TAXONOMY[category].noTagLevel;
     const primary = needsTagFolder ? vocab.resolve([draft.primary_tag]) : { tags: [], created: [] };
     const others = vocab.resolve(draft.tags);
     const primaryTag = primary.tags[0] || "";
-    let folder = buildFolder({ category: draft.category, subcategory: draft.subcategory, primaryTag });
+    let folder = categoryOk ? buildFolder({ category, subcategory, primaryTag }) : null;
     if (!folder) {
-      console.warn(`[classifier] AI 的分類「${draft.category}/${draft.subcategory}/${draft.primary_tag}」不在分類樹裡，改放進 ${INBOX_FALLBACK}`);
+      console.warn(`[classifier] AI 的分類「${category}/${subcategory}/${draft.primary_tag}」不在分類樹裡，改放進 ${INBOX_FALLBACK}`);
       folder = INBOX_FALLBACK;
     }
     return {
@@ -165,6 +188,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     targetPath,
     extra = {},
     skipGit = false,
+    keepSection = "", // 改寫既有筆記時要原樣保留的段落（例如使用者手寫的相關筆記）
   }) {
     const angleBlock = angles.length ? `研究角度：\n${angles.map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n` : "";
     const rawText =
@@ -185,7 +209,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       sourceChannel,
       type: "research",
       extra: { topic: question, notebook_id: notebookId, ...extra },
-      appendix: `> [!note]- 原始研究報告（NotebookLM）\n${quotedReport}`,
+      appendix: [`> [!note]- 原始研究報告（NotebookLM）\n${quotedReport}`, keepSection].filter(Boolean).join("\n\n"),
       targetPath,
       skipGit,
     });
@@ -204,17 +228,10 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       const duplicatePath = urls.length ? findDuplicateNote(vault, urls) : null;
       if (duplicatePath) return { duplicate: true, duplicatePath, urls };
 
-      const fetched = [];
-      for (const url of urls.slice(0, MAX_URLS_PER_MESSAGE)) {
-        // eslint-disable-next-line no-await-in-loop
-        fetched.push(await fetcher.fetch(url));
-      }
-
-      const type = fetched.some((f) => f.kind === "video") ? "video" : urls.length ? "article" : "note";
-      const saved = await draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel, type });
+      const fetched = await fetchAll(urls);
+      const saved = await draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel, type: noteTypeOf(fetched, urls) });
       // 抓不到的網址照樣建立筆記（只靠網址與使用者留言整理），但要讓使用者知道原因
-      const fetchErrors = fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error }));
-      return { ...saved, fetchErrors };
+      return { ...saved, fetchErrors: fetchErrorsOf(fetched) };
     },
 
     /**
@@ -227,59 +244,55 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       for (const url of oldNotes.flatMap((n) => n.sources)) {
         if (!urls.some((u) => normalizeUrl(u) === normalizeUrl(url))) urls.push(url);
       }
-      const fetched = [];
-      for (const url of urls.slice(0, MAX_URLS_PER_MESSAGE)) {
-        // eslint-disable-next-line no-await-in-loop
-        fetched.push(await fetcher.fetch(url));
-      }
+      const fetched = await fetchAll(urls);
       const titles = [...new Set(oldNotes.map((n) => n.title).filter(Boolean))].join("／");
       const rawText = fetched.some((f) => f.ok)
         ? `重新整理既有筆記（原標題：${titles}）。請以擷取到的原文為準，重新整理成精讀筆記。`
         : `重新整理既有筆記（原標題：${titles}）。原文已無法取得，以下原筆記內容是唯一來源，完整保留其中所有資訊：\n\n` +
           oldNotes.map((n) => n.body).join("\n\n---\n\n");
-      const dates = oldNotes.map((n) => n.frontmatter.date_added).filter(Boolean).sort();
 
+      const { sourceChannel, dateAdded } = inheritedFrom(oldNotes);
       const saved = await draftAndSave({
         rawText,
         fetched,
         sources: urls,
-        sourceChannel: oldNotes[0].frontmatter.via || "migration",
-        type: fetched.some((f) => f.kind === "video") ? "video" : urls.length ? "article" : "note",
-        extra: dates.length ? { date_added: dates[0] } : {},
+        sourceChannel,
+        type: noteTypeOf(fetched, urls),
+        extra: dateAdded ? { date_added: dateAdded } : {},
         skipGit: true,
       });
-      return { ...saved, fetchErrors: fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error })) };
+      return { ...saved, fetchErrors: fetchErrorsOf(fetched) };
     },
 
-    /**
-     * 舊研究筆記重建（見 migration.js）：同主題的一組舊研究筆記 -> 一篇新研究筆記。
-     * 沿用原本的 notebook（多個就合併到來源最多的那個），依計畫補跑研究、產生新報告；
-     * notebook 全都不在了才重新研究。frontmatter 的 notebook_ids 列出所有相關 notebook。
-     */
     /** 舊研究筆記重建前：請 AI 把同主題的研究分組，每組附研究計畫。 */
     async groupResearchNotes(notes) {
       const { system, user } = buildGroupPrompts(notes);
       return normalizeGroups(await ai.askJson({ system, user, tool: RESEARCH_GROUP_TOOL }), notes);
     },
 
+    /**
+     * 舊研究筆記重建（見 migration.js）：同主題的一組舊研究筆記 -> 一篇新研究筆記。
+     * 沿用原本的 notebook（多個就合併到來源最多的那個），依計畫補跑研究、產生新報告；
+     * notebook 全都不在了才重新研究。frontmatter 的 notebook_ids 列出所有相關 notebook（含已刪除的舊 id，方便追查）。
+     */
     async rebuildResearchNote(oldNotes, plan) {
       const notebookIds = oldNotes.map(notebookIdOf).filter(Boolean);
       let rebuilt = notebookIds.length ? await notebook.rebuildResearch({ notebookIds, plan }) : null;
       if (!rebuilt) {
         const fresh = await notebook.researchTopic(plan.question, { plan });
-        rebuilt = { notebookId: fresh.notebookId, mergedFrom: [], reportText: fresh.reportText };
+        rebuilt = { notebookId: fresh.notebookId, reportText: fresh.reportText };
       }
-      const dates = oldNotes.map((n) => n.frontmatter.date_added).filter(Boolean).sort();
+      const { sourceChannel, dateAdded } = inheritedFrom(oldNotes);
       const saved = await saveResearchNote({
         userInput: oldNotes.map((n) => n.title).join("／"),
         question: plan.question,
         angles: plan.angles,
         notebookId: rebuilt.notebookId,
         reportText: rebuilt.reportText,
-        sourceChannel: oldNotes[0].frontmatter.via || "migration",
+        sourceChannel,
         extra: {
-          notebook_ids: [rebuilt.notebookId, ...rebuilt.mergedFrom],
-          ...(dates.length ? { date_added: dates[0] } : {}),
+          notebook_ids: [...new Set([rebuilt.notebookId, ...notebookIds])],
+          ...(dateAdded ? { date_added: dateAdded } : {}),
         },
         skipGit: true,
       });
@@ -294,11 +307,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     async planResearch(topic, { previous, feedback } = {}) {
       const cleanTopic = (topic || "").trim();
       if (!cleanTopic) throw new Error("研究主題是空的");
-      const sources = [];
-      for (const url of findUrls(cleanTopic).slice(0, MAX_URLS_PER_MESSAGE)) {
-        // eslint-disable-next-line no-await-in-loop
-        sources.push(await fetcher.fetch(url));
-      }
+      const sources = await fetchAll(findUrls(cleanTopic));
       // 只列找得到 notebook id 的研究：找不到就沒辦法「補充」到同一個 notebook
       const existingResearch = researchNotesIn(vault).filter((r) => r.notebookId);
       const { system, user } = buildPlanPrompts({ topic: cleanTopic, sources, previous, feedback, existingResearch });
@@ -330,6 +339,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     /**
      * 補充既有研究：在原本的 notebook 上依新計畫加跑 deep research、重新產生報告，
      * 再用新報告改寫原筆記（路徑與檔名不變，連結不會斷；notebook id 不變）。
+     * 原筆記的「## 相關筆記」（含使用者手動加的連結）原樣保留。
      */
     async supplementResearch(notePath, sourceChannel, { plan, onStatus } = {}) {
       const existing = vault.readNote(notePath);
@@ -345,6 +355,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         reportText,
         sourceChannel,
         targetPath: notePath,
+        keepSection: relatedSectionOf(existing.body),
       });
       return { notebookId, ...saved };
     },

@@ -408,3 +408,41 @@ test("rebuildResearchNote: all notebooks gone -> researches the plan from scratc
   assert.deepEqual(researched, [{ topic: researchPlan.question, options: { plan: researchPlan } }]);
   assert.equal(vault.readNote(out.result.relativePath).frontmatter.notebook_id, "fresh");
 });
+
+test("rebuildResearchNote keeps every old notebook id even when they were all deleted", async () => {
+  const vault = createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-")));
+  const oldId = "44444444-4444-4444-4444-444444444444";
+  const p = seedResearch(vault, { title: "舊研究", notebookId: oldId, oldStyle: true });
+  const pipeline = createPipeline({
+    ...pipelineDeps(vault),
+    notebook: { rebuildResearch: async () => null, researchTopic: async () => ({ notebookId: "fresh", reportText: "r" }) },
+  });
+
+  const out = await pipeline.rebuildResearchNote([vault.readNote(p)], researchPlan);
+
+  assert.deepEqual(vault.readNote(out.result.relativePath).frontmatter.notebook_ids, ["fresh", oldId]);
+});
+
+test("a category outside the taxonomy does not add its primary tag to the vocabulary", async () => {
+  const { vault, pipeline } = setup({ aiDraft: { ...draft, category: "知識庫", primary_tag: "完全新的Tag" } });
+  const out = await pipeline.processIncomingContent("x", "telegram");
+  assert.equal(out.draft.folder, "收件匣/待整理");
+  assert.ok(!(vault.readFile("_系統/tags.json") || "").includes("完全新的Tag"));
+  assert.ok(!out.createdTags.includes("完全新的Tag"));
+});
+
+test("supplementResearch keeps the user's hand-written related links", async () => {
+  const vault = createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-")));
+  const notePath = seedResearch(vault, { title: "既有研究", notebookId: "nb-old" });
+  vault.updateNote(notePath, (c) => `${c}\n## 相關筆記\n\n- [[我手動加的連結]]\n`);
+  const pipeline = createPipeline({
+    ...pipelineDeps(vault),
+    notebook: { supplementResearch: async (notebookId) => ({ notebookId, reportText: "新報告" }) },
+  });
+
+  await pipeline.supplementResearch(notePath, "telegram-notebook", { plan: researchPlan });
+
+  const body = vault.readNote(notePath).body;
+  assert.match(body, /\[\[我手動加的連結\]\]/);
+  assert.equal(body.split("## 相關筆記").length, 2, "only one related section");
+});

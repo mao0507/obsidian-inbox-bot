@@ -19,27 +19,37 @@ function isTagFolder(folder) {
   return parts.length === 3 && Boolean(TAXONOMY[parts[0]]) && !TAXONOMY[parts[0]].noTagLevel;
 }
 
+// 「## 相關筆記」區塊的範圍 [start, end)：到下一個標題或檔案結尾；沒有這個區塊回傳 null。
+function relatedSectionRange(content) {
+  const start = content.indexOf(HEADING);
+  if (start === -1) return null;
+  const nextHeading = content.slice(start + HEADING.length).search(/\n#{1,6}[ \t]/);
+  return { start, end: nextHeading === -1 ? content.length : start + HEADING.length + nextHeading };
+}
+
+/** 取出筆記裡的「## 相關筆記」區塊原文（改寫筆記時用來保留使用者手動加的連結）；沒有就回傳空字串。 */
+export function relatedSectionOf(content) {
+  const range = relatedSectionRange(content);
+  return range ? content.slice(range.start, range.end).trim() : "";
+}
+
 // 純粹「加上一條連結」，不會動到區塊裡既有的其他連結（包含使用者自己手動加的）。
 // 已經連過（新格式或舊的 [[檔名]] 格式）就不重複加；沒有「## 相關筆記」區塊就新增一段。
 function addRelatedLink(content, targetPath) {
   const link = wikiLink(targetPath);
   const target = targetPath.replace(/\.md$/, "");
   const basename = target.slice(target.lastIndexOf("/") + 1);
-  const headingIdx = content.indexOf(HEADING);
+  const range = relatedSectionRange(content);
 
-  if (headingIdx === -1) {
+  if (!range) {
     return `${content.trimEnd()}\n\n${HEADING}\n\n- ${link}\n`;
   }
 
-  const afterHeading = content.slice(headingIdx + HEADING.length);
-  const nextHeadingRel = afterHeading.search(/\n#{1,6}[ \t]/);
-  const sectionEndAbs = nextHeadingRel === -1 ? content.length : headingIdx + HEADING.length + nextHeadingRel;
-  const section = content.slice(headingIdx, sectionEndAbs);
-
+  const section = content.slice(range.start, range.end);
   if (section.includes(`[[${target}|`) || section.includes(`[[${basename}]]`)) return content;
 
-  const before = content.slice(0, sectionEndAbs).replace(/\s+$/, "");
-  const after = content.slice(sectionEndAbs);
+  const before = content.slice(0, range.end).replace(/\s+$/, "");
+  const after = content.slice(range.end);
   return `${before}\n- ${link}\n${after}`;
 }
 

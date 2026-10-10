@@ -1,7 +1,8 @@
 import { normalizeUrl } from "./duplicateCheck.js";
 import { regenerateMoc } from "./mocSync.js";
 import { TAXONOMY } from "./taxonomy.js";
-import { notebookIdOf } from "./researchPlan.js";
+import { notebookIdOf, isLegacyResearchNote as isResearch } from "./researchPlan.js";
+import { basenameOf } from "./noteStore.js";
 
 // 舊筆記重建：把改版前的筆記（frontmatter 沒有 type 欄位）用新流程重新產生——重新抓原文、新的精讀模板、
 // 新分類樹、新檔名——再把全 vault 的 [[連結]] 改指向新筆記、刪掉舊筆記。
@@ -19,10 +20,8 @@ const REPORT_PATH = "_系統/migration-report.md";
 const RESEARCH_PLAN_PATH = "_系統/migration-research-plan.md";
 
 const isOldFormat = (note) => !note.frontmatter?.type; // 新筆記、卡片、地圖都有 type
-const isResearch = (note) => /^(telegram-notebook|claude-code-skill)$/.test(note.frontmatter?.via || "");
 const isSystem = (note) => note.path.startsWith("_系統/") || note.path.startsWith("卡片/");
 const withoutExt = (relPath) => relPath.replace(/\.md$/i, "");
-const basenameOf = (relPath) => withoutExt(relPath).slice(withoutExt(relPath).lastIndexOf("/") + 1);
 const cell = (text) => String(text).replace(/\|/g, "\\|").replace(/\n/g, " ");
 
 // [[目標#標題|別名]]

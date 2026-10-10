@@ -72,6 +72,9 @@ try {
   if (action === "install") {
     console.log("\n✅ 服務已啟動，之後登入電腦會自動在背景執行。看 log：pnpm run service:logs");
     console.log("   （之後如果換了 Node 版本或搬動專案資料夾，重跑一次 pnpm run service:install）");
+    if (process.platform === "linux") {
+      console.log("   Linux：預設只在你登入後啟動；想開機就啟動，執行 sudo loginctl enable-linger $USER");
+    }
   }
 } catch (err) {
   console.error(`❌ ${err.message}`);

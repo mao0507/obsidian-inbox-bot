@@ -1,4 +1,4 @@
-import { titleToFilename, wikiLink } from "./noteStore.js";
+import { titleToFilename, wikiLink, basenameOf } from "./noteStore.js";
 import { tagKey } from "./tagVocabulary.js";
 
 // 概念卡：每篇主筆記額外抽出 0~3 個「可重複使用的概念」，存成 卡片/<概念>.md。
@@ -9,7 +9,6 @@ export const MAX_CARDS_PER_NOTE = 3;
 const CARD_DIR = "卡片";
 const SOURCES_HEADING = "## 來源";
 
-const basenameOf = (relPath) => relPath.slice(relPath.lastIndexOf("/") + 1).replace(/\.md$/i, "");
 const indent = (text) =>
   String(text)
     .trim()
