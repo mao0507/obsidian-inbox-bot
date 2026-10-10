@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { NOTEBOOKLM_COMMAND, NOTEBOOKLM_RESEARCH_MODE, NOTEBOOKLM_ENABLED, NOTEBOOKLM_LOGIN_BROWSER } from "./config.js";
 import { tryExtractJsonObject } from "./cliRunner.js";
-import { askAi } from "./askAi.js";
+import { ai } from "./app.js";
 
 // Deep Research 官方預設 timeout 是 1800 秒（--mode deep --import-all 這種阻塞式呼叫），
 // fast 模式通常幾十秒就完成，但還是給足夠寬裕的上限避免誤殺正常執行中的研究。
@@ -184,7 +184,7 @@ ${rawInput}
 // 讀真正的來源內容來做，更準確也更誠實（見 runResearchFlow 裡的分流）。
 async function summarizeResearchBrief(rawInput) {
   try {
-    const brief = await askAi(buildBriefPrompt(rawInput), { cliShortInstruction: BRIEF_CLI_INSTRUCTION });
+    const brief = await ai.ask(buildBriefPrompt(rawInput), { instruction: BRIEF_CLI_INSTRUCTION });
     return brief && brief.trim() ? brief.trim() : null;
   } catch (err) {
     console.warn(`[notebooklm] 用 Claude 摘要研究需求失敗（改用原始輸入繼續）：${err.message}`);

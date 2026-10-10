@@ -19,6 +19,12 @@ export const NESTED_TAXONOMY = {
   "Assets": ["Images", "PDF"],
 };
 
+// 扁平 + 樹狀分類的所有合法固定路徑（動態分類不在這裡，見 isValidFolder）。
+export const VALID_FOLDERS = [
+  ...FLAT_CATEGORIES,
+  ...Object.entries(NESTED_TAXONOMY).flatMap(([top, subs]) => subs.map((s) => `${top}/${s}`)),
+];
+
 // DYNAMIC_TAXONOMY：至少有一層子資料夾不是固定清單，而是 AI 依內容動態決定。
 // 每個分類用 levels 陣列描述每一層：
 //   - type: "fixed"  → 這一層必須是 options 清單裡的其中一個值（跟 NESTED_TAXONOMY 一樣）

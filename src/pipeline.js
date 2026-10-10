@@ -1,7 +1,6 @@
 import path from "node:path";
 import { findUrls, fetchUrlContent } from "./extractContent.js";
-import { classifyAndDraft } from "./classify.js";
-import { vault } from "./app.js";
+import { vault, drafter } from "./app.js";
 import { commitAndPush } from "./gitSync.js";
 import { findDuplicateNote } from "./duplicateCheck.js";
 import { syncRelatedNotes } from "./relatedNotes.js";
@@ -66,7 +65,7 @@ export async function processIncomingContent(rawText, sourceChannel) {
     fetched.push(await fetchUrlContent(url));
   }
 
-  const draft = await classifyAndDraft({ rawText: text, fetched, sourceChannel });
+  const draft = await drafter.draftNote({ rawText: text, fetched, sourceChannel });
 
   const result = vault.writeNote({
     ...draft,
@@ -108,7 +107,7 @@ export async function processNotebookResearch(topic, sourceChannel, { onStatus }
     `以下是用 NotebookLM 針對這個主題做研究後產生的報告（NotebookLM notebook id: ${notebookId}，內容已含引用來源）：\n\n` +
     reportText;
 
-  const draft = await classifyAndDraft({ rawText, fetched: [], sourceChannel });
+  const draft = await drafter.draftNote({ rawText, fetched: [], sourceChannel });
 
   const result = vault.writeNote({
     ...draft,

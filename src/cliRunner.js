@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 // 執行本機 agent CLI，把 input 從 stdin 餵進去，回傳完整 stdout。
-// classifyViaCli.js（文章分類）和 askAi.js（筆記問答）共用這支，
+// aiBackends.js 的 CLI adapter 用這支，
 // 避免重複實作 spawn / timeout / 錯誤處理邏輯。
 export function runCli(command, args, input, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {

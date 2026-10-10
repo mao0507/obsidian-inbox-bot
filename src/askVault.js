@@ -1,7 +1,10 @@
 import { findRelevantNotes } from "./noteIndex.js";
-import { askAi } from "./askAi.js";
+import { ai } from "./app.js";
 
 const MAX_NOTES = 8;
+// CLI backend 用：完整內容（問題 + 找到的筆記）從 stdin 餵進去，位置參數只帶這句短指令。
+const ASK_INSTRUCTION =
+  "請根據上面由標準輸入提供的筆記內容回答問題，只回傳答案本身（可以用 Markdown 條列），不要有其他前言或結語。";
 const MAX_BODY_CHARS_PER_NOTE = 3000;
 
 function buildPrompt(question, notes) {
@@ -54,7 +57,7 @@ export async function answerFromVault(question) {
   }
 
   const prompt = buildPrompt(question, notes);
-  const answer = await askAi(prompt);
+  const answer = await ai.ask(prompt, { instruction: ASK_INSTRUCTION });
 
   return {
     answer,
