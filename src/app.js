@@ -7,10 +7,14 @@ import {
   AGENT_CLI_ARGS,
   ANTHROPIC_API_KEY,
   CLAUDE_MODEL,
+  NOTEBOOKLM_COMMAND,
+  NOTEBOOKLM_RESEARCH_MODE,
+  NOTEBOOKLM_LOGIN_BROWSER,
 } from "./config.js";
 import { createNoteStore } from "./noteStore.js";
 import { createCliBackend, createApiBackend } from "./aiBackends.js";
 import { createNoteDrafter } from "./noteDrafter.js";
+import { createNotebookResearch, createNotebookLmRunner } from "./notebookResearch.js";
 // promptBuilder -> vaultScan -> app.js 是循環 import；vaultScan 只在函式被呼叫時才讀 vault，所以安全。
 import { buildSystemPrompt, buildUserPrompt } from "./promptBuilder.js";
 
@@ -25,4 +29,11 @@ export const ai =
 export const drafter = createNoteDrafter({
   backend: ai,
   buildPrompts: (input) => ({ system: buildSystemPrompt(input.sourceChannel), user: buildUserPrompt(input) }),
+});
+
+export const notebook = createNotebookResearch({
+  run: createNotebookLmRunner(NOTEBOOKLM_COMMAND),
+  ai,
+  researchMode: NOTEBOOKLM_RESEARCH_MODE,
+  loginBrowser: NOTEBOOKLM_LOGIN_BROWSER,
 });

@@ -1,10 +1,14 @@
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 
-const URL_RE = /https?:\/\/[^\s<>()"']+/g;
+// 全形標點（，。「」等）不會出現在網址裡，遇到就當網址結束，避免「https://a.com/x。順便...」整串被吃進去。
+const URL_RE = /https?:\/\/[^\s<>()"'，。；：、「」『』！？（）]+/g;
 
+// 從一段文字裡抓出所有網址（可能出現在句子中間）。緊黏在網址後面的常見尾端標點
+// （中英文句號、逗號、括號、引號等）會被一起吃進去，所以額外清掉。
+// 一般內容收件跟 /notebook 研究共用這支。
 export function findUrls(text) {
-  return [...(text.match(URL_RE) || [])];
+  return (text.match(URL_RE) || []).map((u) => u.replace(/[)\]}>,.;:!?，。；：、」』"'"]+$/, ""));
 }
 
 function isNotionUrl(url) {

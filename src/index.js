@@ -1,5 +1,6 @@
 import { startBot } from "./bot.js";
-import { startAuthKeepalive } from "./notebookResearch.js";
+import { notebook } from "./app.js";
+import { NOTEBOOKLM_ENABLED } from "./config.js";
 
 // 保險：任何一次分類/擷取（尤其是 Playwright 那段）萬一丟出沒被 catch 到的錯誤，
 // 只印出來，不要讓整個 bot process 掛掉，導致下一個請求變成
@@ -12,4 +13,4 @@ process.on("unhandledRejection", (reason) => {
 });
 
 startBot();
-startAuthKeepalive();
+if (NOTEBOOKLM_ENABLED) notebook.startAuthKeepalive();

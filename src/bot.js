@@ -1,8 +1,8 @@
-import { spawn } from "node:child_process";
 import { Telegraf, Markup } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "./config.js";
 import { processIncomingContent, processNotebookResearch } from "./pipeline.js";
 import { answerFromVault } from "./askVault.js";
+import { notebook } from "./app.js";
 import { enqueueTask, queuePendingCount, isProcessing } from "./taskQueue.js";
 import { listFolder, readNote } from "./vaultBrowser.js";
 
@@ -333,20 +333,12 @@ export function startBot() {
 
     const msg = await ctx.reply("🔑 正在執行 notebooklm login，跑這個服務的機器上應該會跳出瀏覽器登入畫面，請稍候...");
 
-    const child = spawn(NOTEBOOKLM_COMMAND, ["login"], { stdio: ["ignore", "pipe", "pipe"] });
-    let output = "";
-    child.stdout.on("data", (d) => (output += d.toString()));
-    child.stderr.on("data", (d) => (output += d.toString()));
-
-    child.on("error", async (err) => {
-      await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ 無法執行「${NOTEBOOKLM_COMMAND} login」：${err.message}`);
-    });
-
-    child.on("close", async (code) => {
-      const tail = output.trim().slice(-3000) || "(無輸出)";
-      const status = code === 0 ? "✅ 登入完成" : `❌ 登入失敗（結束代碼 ${code}）`;
-      await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `${status}\n\n${tail}`).catch(() => {});
-    });
+    try {
+      const output = await notebook.login();
+      await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `✅ 登入完成\n\n${output.trim().slice(-3000) || "(無輸出)"}`).catch(() => {});
+    } catch (err) {
+      await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ 登入失敗：${err.message}`).catch(() => {});
+    }
   });
 
   // /browse：列出目前 vault 裡的分類（vault 根目錄下的資料夾），可以用按鈕一路點下去查

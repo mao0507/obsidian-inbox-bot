@@ -1,11 +1,10 @@
 import path from "node:path";
 import { findUrls, fetchUrlContent } from "./extractContent.js";
-import { vault, drafter } from "./app.js";
+import { vault, drafter, notebook } from "./app.js";
 import { commitAndPush } from "./gitSync.js";
 import { findDuplicateNote } from "./duplicateCheck.js";
 import { syncRelatedNotes } from "./relatedNotes.js";
 import { syncMocForFolder } from "./mocSync.js";
-import { researchTopic } from "./notebookResearch.js";
 
 /**
  * 筆記寫進 vault 之後的共用收尾步驟，processIncomingContent（一般丟內容）跟
@@ -91,7 +90,7 @@ export async function processNotebookResearch(topic, sourceChannel, { onStatus }
     throw new Error("研究主題是空的");
   }
 
-  const { notebookId, reportText, effectiveTopic } = await researchTopic(cleanTopic, { onStatus });
+  const { notebookId, reportText, effectiveTopic } = await notebook.researchTopic(cleanTopic, { onStatus });
 
   // effectiveTopic 通常跟 cleanTopic 一樣；只有當使用者丟的是網址（例如 YouTube 連結）
   // 且 notebookResearch.js 成功理解了來源內容時，才會換成「這個來源實際在講什麼」的
