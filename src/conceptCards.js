@@ -9,6 +9,11 @@ export const MAX_CARDS_PER_NOTE = 3;
 const CARD_DIR = "卡片";
 const SOURCES_HEADING = "## 來源";
 
+// AI 常在概念名稱後面加括號補充翻譯（「System Prompt（系統提示詞）」），比對時忽略括號，
+// 不然同一個概念換個寫法就會多開一張卡片。檔名照第一次建立時的寫法保留。
+const withoutGloss = (name) => String(name).replace(/\s*[（(][^（）()]*[）)]\s*$/, "").trim() || String(name).trim();
+const cardKey = (name) => tagKey(withoutGloss(name));
+
 const indent = (text) =>
   String(text)
     .trim()
@@ -21,12 +26,12 @@ const indent = (text) =>
  * @returns {Array<{ name, path, exists, explanation }>}
  */
 export function planCards(vault, vocab, concepts) {
-  const existing = new Map(vault.listNotes(CARD_DIR).map((n) => [tagKey(basenameOf(n.path)), n.path]));
+  const existing = new Map(vault.listNotes(CARD_DIR).map((n) => [cardKey(basenameOf(n.path)), n.path]));
   const plan = [];
   for (const concept of (concepts || []).filter((c) => c?.name?.trim())) {
     if (plan.length >= MAX_CARDS_PER_NOTE) break;
-    const canonical = vocab.lookup(concept.name) || concept.name.trim();
-    const found = existing.get(tagKey(canonical)) || existing.get(tagKey(concept.name));
+    const canonical = vocab.lookup(withoutGloss(concept.name)) || concept.name.trim();
+    const found = existing.get(cardKey(canonical)) || existing.get(cardKey(concept.name));
     const path = found || `${CARD_DIR}/${titleToFilename(canonical)}.md`;
     if (plan.some((p) => p.path === path)) continue;
     plan.push({ name: basenameOf(path), path, exists: Boolean(found), explanation: concept.explanation || "" });

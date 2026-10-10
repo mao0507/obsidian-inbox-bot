@@ -91,3 +91,11 @@ test("saving the same note twice for a card does not duplicate its source entry"
   assert.equal(body.match(/\[\[技術\/前端框架\/Vue\/同一篇\|/g).length, 1);
   assert.equal(body.match(/\[\[技術\/前端框架\/Vue\/同一篇 \(2\)\|/g).length, 1);
 });
+
+test("parenthetical glosses do not split cards: 'System Prompt（系統提示詞）' and 'System Prompt' are one card", async () => {
+  const { vault, save } = vaultWithPipeline();
+  await save("文章一", [{ name: "System Prompt（系統提示詞）", explanation: "x" }]);
+  await save("文章二", [{ name: "System Prompt", explanation: "y" }]);
+  await save("文章三", [{ name: "system prompt (系統提示)", explanation: "z" }]);
+  assert.deepEqual(cardFiles(vault), ["卡片/System Prompt（系統提示詞）.md"]);
+});
