@@ -71,7 +71,7 @@
   - `學習`：第一層 `fixed`（`書籍`/`課程`/`文章整理`），第二層 `free`（主題或書名），例如 `學習/書籍/原子習慣`。
   要加新的動態分類，在 `DYNAMIC_TAXONOMY` 裡加一個 key，照格式設定 `levels` 和 `hint` 即可。
 - `RULES`：文字描述的分類規則，可以照自己習慣改寫，AI 會照這份規則判斷。
-- `isValidFolder(folder)`：驗證 AI 回傳的 folder 是否合法（扁平/樹狀分類要完全對上清單，動態分類檢查階層數與每層的 fixed/free 規則）。分類邏輯（`classifyViaApi.js`、`classifyViaCli.js`）都會用這個驗證，不合法就自動退回 `收件匣/待整理`。
+- `isValidFolder(folder)`：驗證 AI 回傳的 folder 是否合法（扁平/樹狀分類要完全對上清單，動態分類檢查階層數與每層的 fixed/free 規則）。分類邏輯（`noteDrafter.js`，不論背後是 API 或 CLI）都會用這個驗證，不合法就自動退回 `收件匣/待整理`。
 
 `AI` 是獨立於 `學習` 之外的頂層分類，AI 相關內容（工具教學、提示詞庫、新聞動態、工具比較）都會被分到這裡，而不是混進一般的 `學習`。
 
@@ -348,31 +348,32 @@ obsidian-inbox-bot/
 ├── public/
 │   └── index.html       網頁表單
 └── src/
-    ├── index.js          啟動進入點（同時開 web server + telegram bot）
+    ├── index.js          啟動進入點（Telegram bot + NotebookLM 登入保活）
     ├── config.js         讀取 .env、檢查設定
+    ├── app.js            composition root：唯一把 config 接到下面各個 module 的地方
     ├── taxonomy.js        分類規則（可自行調整）
+    ├── noteStore.js       Vault Note module：筆記的讀、寫、走訪、frontmatter 格式全在這裡
+    ├── aiBackends.js      AI backend：本機 agent CLI / Anthropic API 兩個 adapter，interface 相同
+    ├── noteDrafter.js     把內容交給 AI 產生已驗證的筆記草稿（必填欄位、資料夾合法性）
+    ├── promptBuilder.js    組出分類用的 system / user prompt
+    ├── cliRunner.js         spawn 本機 agent CLI 的共用邏輯
     ├── vaultScan.js        掃描動態分類既有名稱，維持 AI 命名一致
-    ├── extractContent.js  抓網頁、抽正文
-    ├── promptBuilder.js    組出給 API/CLI 共用的 prompt 內容
-    ├── cliRunner.js         spawn 本機 agent CLI 的共用邏輯（分類、/ask 都會用到）
-    ├── classify.js         依 CLASSIFIER_MODE 分派給 API 版或 CLI 版
-    ├── classifyViaApi.js   走 Anthropic API + tool-use 做分類
-    ├── classifyViaCli.js   走本機 agent CLI（如 claude -p）做分類
+    ├── extractContent.js  抓網頁、抽正文、從文字抓網址
     ├── duplicateCheck.js    分類前比對來源網址，vault 裡已有同一篇文章就直接回報、不重複建立
     ├── relatedNotes.js      筆記寫入後跟相關的既有筆記互相補上雙向 [[wikilink]]
     ├── mocSync.js           動態分類（AI/學習/旅遊）重新產生 <分類>地圖.md 索引
-    ├── writeNote.js        寫入 .md 檔到 vault
     ├── gitSyncFactory.js     「某資料夾自動 commit+push 到某 remote」的共用邏輯
     ├── gitSync.js           筆記寫入後自動 commit + push 到 VAULT_GIT_REMOTE（選用，底層用 gitSyncFactory.js）
-    ├── noteIndex.js         讀取 vault 所有筆記、關鍵字比對找出相關筆記（給 /ask 用）
-    ├── askAi.js              呼叫本機 CLI 或 API 做純文字問答（不是結構化分類）
-    ├── askVault.js           整合 noteIndex + askAi，處理 /ask 的完整流程
-    ├── vaultBrowser.js       掃描 vault 資料夾/筆記結構，給 /browse 用
-    ├── notebookResearch.js   呼叫外部 notebooklm CLI 做研究、產生報告（/notebook 用）
+    ├── noteIndex.js         關鍵字比對找出相關筆記（給 /ask 用）
+    ├── askVault.js           整合 noteIndex + AI backend，處理 /ask 的完整流程
+    ├── vaultBrowser.js       整理 vault 資料夾/筆記結構，給 /browse 用
+    ├── browseView.js         /browse 的 Telegram 畫面與按鈕
+    ├── notebookResearch.js   NotebookLM Research module：研究流程、登入過期自動修復（notebooklm CLI 是可替換的 seam）
     ├── taskQueue.js          簡單的記憶體 FIFO 佇列（concurrency=1），/notebook 排隊用
-    ├── pipeline.js         串起以上流程，web/telegram 共用（含 processNotebookResearch）
-    ├── server.js           Express 網頁伺服器
+    ├── pipeline.js         串起以上流程（含 processNotebookResearch）
     └── bot.js              Telegram bot（含 /ask、/browse、/notebook 指令）
+
+test/                     `npm test`（node:test，不需要 .env）
 
 scripts/
   ├── git-sync.js                  手動觸發一次 vault git 同步（npm run vault:sync）
