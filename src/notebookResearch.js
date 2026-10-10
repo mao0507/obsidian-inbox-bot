@@ -324,38 +324,47 @@ export function createNotebookResearch({ run, ai, researchMode = "deep", loginBr
     return run(["login"], { timeoutMs: FULL_LOGIN_TIMEOUT_MS });
   }
 
+  /**
+   * 執行 task；遇到登入過期時依序自動嘗試 auth refresh、完整 login，每一步成功就重試一次 task，
+   * 都失敗才把 NotebookAuthExpiredError 丟出去。
+   * onStatus（可選）：每個自動修復步驟開始時呼叫一次，讓呼叫端即時更新 Telegram 訊息。
+   */
+  async function withAuthRecovery(task, onStatus) {
+    try {
+      return await task();
+    } catch (err) {
+      if (!(err instanceof NotebookAuthExpiredError)) throw err;
+
+      console.warn("[notebooklm] 偵測到登入過期，自動嘗試 auth refresh 後重試一次...");
+      onStatus?.("🔑 偵測到 NotebookLM 登入過期，嘗試自動 refresh 登入狀態...");
+      if (await tryAuthRefresh()) return task();
+
+      console.warn("[notebooklm] auth refresh 沒用，改嘗試完整的 notebooklm login...");
+      onStatus?.("🔑 自動 refresh 沒用，正在開瀏覽器重新登入，請到跑這個服務的電腦上完成 Google 登入（最多等 5 分鐘）...");
+      try {
+        await login();
+      } catch (loginErr) {
+        console.warn(`[notebooklm] 自動執行 notebooklm login 失敗：${loginErr.message}`);
+        throw err;
+      }
+
+      onStatus?.("✅ 重新登入成功，重新開始研究任務...");
+      return task();
+    }
+  }
+
   return {
     login,
 
-    /**
-     * 用 NotebookLM 針對一個主題做研究。遇到登入過期時依序自動嘗試 auth refresh、完整 login，
-     * 每一步成功就重試一次整個研究流程；都失敗才把 NotebookAuthExpiredError 丟出去。
-     * onStatus（可選）：每個自動修復步驟開始時呼叫一次，讓呼叫端即時更新 Telegram 訊息。
-     */
-    async researchTopic(topic, { plan, onStatus } = {}) {
-      try {
-        return await runResearchFlow(topic, plan);
-      } catch (err) {
-        if (!(err instanceof NotebookAuthExpiredError)) throw err;
+    /** 用 NotebookLM 針對一個主題做研究（新 notebook），回傳報告。 */
+    researchTopic(topic, { plan, onStatus } = {}) {
+      return withAuthRecovery(() => runResearchFlow(topic, plan), onStatus);
+    },
 
-        console.warn("[notebooklm] 偵測到登入過期，自動嘗試 auth refresh 後重試一次...");
-        onStatus?.("🔑 偵測到 NotebookLM 登入過期，嘗試自動 refresh 登入狀態...");
-        if (await tryAuthRefresh()) {
-          return runResearchFlow(topic, plan);
-        }
-
-        console.warn("[notebooklm] auth refresh 沒用，改嘗試完整的 notebooklm login...");
-        onStatus?.("🔑 自動 refresh 沒用，正在開瀏覽器重新登入，請到跑這個服務的電腦上完成 Google 登入（最多等 5 分鐘）...");
-        try {
-          await login();
-        } catch (loginErr) {
-          console.warn(`[notebooklm] 自動執行 notebooklm login 失敗：${loginErr.message}`);
-          throw err;
-        }
-
-        onStatus?.("✅ 重新登入成功，重新開始研究任務...");
-        return runResearchFlow(topic, plan);
-      }
+    /** 在既有 notebook 上依計畫補跑研究、重新產生報告（補充既有研究用）。 */
+    async supplementResearch(notebookId, plan, { onStatus } = {}) {
+      const reportText = await withAuthRecovery(() => deepenAndReport(notebookId, plan), onStatus);
+      return { notebookId, reportText };
     },
 
     // 背景保活：定期 auth refresh，盡量讓登入 session 不要走到完全過期。失敗只印警告。

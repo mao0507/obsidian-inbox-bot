@@ -96,7 +96,7 @@ function serializeFrontmatter(note) {
   optional("duration");
   optional("topic");
   optional("notebook_id");
-  lines.push(`date_added: ${todayISO()}`);
+  lines.push(`date_added: ${note.date_added || todayISO()}`);
   lines.push(`via: ${sourceChannel}`);
   lines.push(`reading_time: ${readingTime(body)}`);
   lines.push(`summary: ${yamlEscape(summary || "")}`);
@@ -165,6 +165,10 @@ function parseNote(relPath, raw) {
   };
 }
 
+function renderNoteFile(note) {
+  return `${serializeFrontmatter(note)}\n\n# ${note.title}\n\n${String(note.body).trim()}\n`;
+}
+
 /**
  * 指向 vault 內一篇筆記的 wikilink：用完整路徑（檔名可能跨資料夾重複，只寫檔名會連錯），顯示文字是檔名。
  * 例如 "技術/前端框架/Vue/Vue 生命週期.md" -> [[技術/前端框架/Vue/Vue 生命週期|Vue 生命週期]]
@@ -228,7 +232,7 @@ export function createNoteStore(root) {
      * 把 draft 寫成 .md 到 vault 對應資料夾。檔名重複時自動加流水號，絕不覆蓋既有筆記。
      */
     writeNote(note) {
-      const { folder, title, body } = note;
+      const { folder, title } = note;
       const dirAbs = abs(folder);
       fs.mkdirSync(dirAbs, { recursive: true });
 
@@ -240,11 +244,20 @@ export function createNoteStore(root) {
         counter += 1;
       }
 
-      const frontmatter = serializeFrontmatter(note);
       const fullPath = path.join(dirAbs, finalName);
-      fs.writeFileSync(fullPath, `${frontmatter}\n\n# ${title}\n\n${body.trim()}\n`, "utf8");
+      fs.writeFileSync(fullPath, renderNoteFile(note), "utf8");
 
       return { relativePath: toRel(folder, finalName), fullPath };
+    },
+
+    /**
+     * 用新的內容整份改寫既有筆記，路徑（檔名）不變，所以其他筆記連過來的 [[連結]] 都不會斷。
+     * 收錄日期沿用原本的（note.date_added 沒給的話從原檔讀）。
+     */
+    overwriteNote(relPath, note) {
+      const date_added = note.date_added || readNote(relPath).frontmatter.date_added;
+      fs.writeFileSync(abs(relPath), renderNoteFile({ ...note, date_added }), "utf8");
+      return { relativePath: relPath, fullPath: abs(relPath) };
     },
 
     /** 用 fn(原始內容) 改寫一篇筆記，內容沒變就不寫。回傳是否有寫入。 */

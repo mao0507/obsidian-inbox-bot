@@ -127,3 +127,29 @@ test("report is a custom zh_Hant report whose prompt walks through every planned
   for (const angle of plan.angles) assert.ok(promptText.includes(angle), angle);
   assert.match(promptText, /引用/);
 });
+
+test("supplementResearch deepens an existing notebook without creating a new one", async () => {
+  const { run, calls } = fakeRun();
+  const result = await createNotebookResearch({ run, ai: fakeAi() }).supplementResearch("nb-existing", plan);
+
+  assert.equal(calls.some((a) => a[0] === "create"), false);
+  const research = calls.find((a) => a[1] === "add-research");
+  assert.equal(research[2], plan.question);
+  assert.equal(research[research.indexOf("-n") + 1], "nb-existing");
+  assert.deepEqual(result, { notebookId: "nb-existing", reportText: "# 報告內容" });
+});
+
+test("supplementResearch also recovers from an expired login", async () => {
+  let failed = false;
+  const { run } = fakeRun({
+    "source add-research": () => {
+      if (!failed) {
+        failed = true;
+        throw new NotebookAuthExpiredError();
+      }
+      return "";
+    },
+  });
+  const result = await createNotebookResearch({ run, ai: fakeAi() }).supplementResearch("nb-existing", plan);
+  assert.equal(result.reportText, "# 報告內容");
+});

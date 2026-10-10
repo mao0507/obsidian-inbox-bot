@@ -24,6 +24,15 @@ const draft = {
 };
 
 // 假依賴：每個 test 拿一組新的，calls 記錄被呼叫的情形。
+function pipelineDeps(vault) {
+  return {
+    vault,
+    ai: { name: "fake", ask: async () => "", askJson: async () => draft },
+    fetcher: { fetch: async (url) => ({ url, ok: false, error: "x" }) },
+    git: { commitAndPush: async () => ({ attempted: false }) },
+  };
+}
+
 function setup(options = {}) {
   return setupWith(createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-"))), options);
 }
@@ -286,4 +295,68 @@ test("research note keeps the plan, topic/notebook_id frontmatter and the full o
   assert.equal(note.frontmatter.topic, researchPlan.question);
   assert.equal(note.frontmatter.notebook_id, "nb9");
   assert.match(note.body, /> \[!note\]- 原始研究報告（NotebookLM）\n> ## 政策\n> 完整報告內容 \[1\]/);
+});
+
+function seedResearch(vault, { title, notebookId, oldStyle = false }) {
+  const extra = oldStyle ? {} : { topic: title, notebook_id: notebookId };
+  const body = oldStyle ? `> 來源：telegram-notebook（NotebookLM notebook id: ${notebookId}）\n\n內容` : "內容";
+  return vault.writeNote({
+    folder: "AI/編程助手/ClaudeCode",
+    title,
+    tags: ["ClaudeCode"],
+    summary: "s",
+    body,
+    type: "research",
+    sourceChannel: "telegram-notebook",
+    ...extra,
+  }).relativePath;
+}
+
+test("planResearch lists existing research and returns the matched note with its notebook id", async () => {
+  const vault = createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-")));
+  const oldPath = seedResearch(vault, {
+    title: "grill-me Skill 研究",
+    notebookId: "b7c30b9b-cb08-4db3-8752-5e98b6ba38a7",
+    oldStyle: true,
+  });
+  const { calls, pipeline } = setupWith(vault, { plan: { ...researchPlan, existing_match: oldPath } });
+
+  const plan = await pipeline.planResearch("grill me 技能");
+
+  assert.ok(calls.askJson[0].user.includes(oldPath), "existing research is listed in the prompt");
+  assert.deepEqual(plan.existing, {
+    path: oldPath,
+    title: "grill-me Skill 研究",
+    notebookId: "b7c30b9b-cb08-4db3-8752-5e98b6ba38a7",
+  });
+});
+
+test("planResearch ignores a match that is not an existing research note", async () => {
+  const { pipeline } = setup({ plan: { ...researchPlan, existing_match: "不存在/的筆記.md" } });
+  assert.equal((await pipeline.planResearch("x")).existing, undefined);
+});
+
+test("supplementResearch deepens the same notebook and rewrites the same note in place", async () => {
+  const vault = createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-")));
+  const notePath = seedResearch(vault, { title: "既有研究", notebookId: "nb-old" });
+  const supplemented = [];
+  const pipeline = createPipeline({
+    ...pipelineDeps(vault),
+    notebook: {
+      supplementResearch: async (notebookId, plan) => {
+        supplemented.push({ notebookId, plan });
+        return { notebookId, reportText: "## 新角度\n補充後的完整報告" };
+      },
+    },
+  });
+
+  const notesBefore = vault.listNotes().filter((n) => n.frontmatter.type !== "MOC").length;
+  const out = await pipeline.supplementResearch(notePath, "telegram-notebook", { plan: researchPlan });
+  const note = vault.readNote(notePath);
+
+  assert.deepEqual(supplemented, [{ notebookId: "nb-old", plan: researchPlan }]);
+  assert.equal(out.result.relativePath, notePath);
+  assert.equal(vault.listNotes().filter((n) => n.frontmatter.type !== "MOC").length, notesBefore, "no new note file");
+  assert.equal(note.frontmatter.notebook_id, "nb-old");
+  assert.match(note.body, /補充後的完整報告/);
 });

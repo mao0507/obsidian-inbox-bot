@@ -9,7 +9,7 @@ import { describeExistingFolders } from "./vaultScan.js";
 import { TAXONOMY, INBOX_FALLBACK, buildFolder } from "./taxonomy.js";
 import { createTagVocabulary } from "./tagVocabulary.js";
 import { planCards, renderCardSection, writeCards } from "./conceptCards.js";
-import { RESEARCH_PLAN_TOOL, buildPlanPrompts, validatePlan } from "./researchPlan.js";
+import { RESEARCH_PLAN_TOOL, buildPlanPrompts, validatePlan, researchNotesIn, notebookIdOf } from "./researchPlan.js";
 
 const MAX_URLS_PER_MESSAGE = 3;
 
@@ -83,7 +83,8 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
   }
 
   // extra：流程特有的 frontmatter（例如研究的 topic / notebook_id）；appendix：接在正文最後的區塊。
-  async function draftAndSave({ rawText, fetched, sources, sourceChannel, type, extra = {}, appendix = "" }) {
+  // targetPath：改寫既有筆記（補充研究）時給，筆記留在原路徑、檔名不變，其他筆記的連結不會斷。
+  async function draftAndSave({ rawText, fetched, sources, sourceChannel, type, extra = {}, appendix = "", targetPath }) {
     // 每篇重新讀一次詞彙表與既有資料夾：使用者可能手動改過 tags.json 或搬過筆記。
     const vocab = createTagVocabulary(vault);
     const drafter = createNoteDrafter({
@@ -103,7 +104,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     const warnings = fetched.map((f) => f.warning).filter(Boolean);
     const note = {
       ...draft,
-      folder,
+      folder: targetPath ? targetPath.slice(0, targetPath.lastIndexOf("/")) : folder,
       primary_tag: primaryTag,
       tags,
       type,
@@ -120,7 +121,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       sourceChannel,
       ...extra,
     };
-    const result = vault.writeNote(note);
+    const result = targetPath ? vault.overwriteNote(targetPath, note) : vault.writeNote(note);
     let cards = [];
     try {
       writeCards(vault, cardPlan, { notePath: result.relativePath });
@@ -129,6 +130,32 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       console.warn(`[cards] 寫入概念卡失敗：${err.message}`);
     }
     return { draft: note, result, warnings, createdTags, cards, ...(await finalizeWrittenNote(note, result)) };
+  }
+
+  // 研究報告 -> 精讀筆記：依研究角度分章節、不壓縮；完整原始報告摺疊附在文末，方便查證。
+  function saveResearchNote({ userInput, question, angles = [], notebookId, reportText, sourceChannel, targetPath }) {
+    const angleBlock = angles.length ? `研究角度：\n${angles.map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n` : "";
+    const rawText =
+      `研究問題：${question}（使用者原始輸入：${userInput}）\n\n${angleBlock}` +
+      `以下是用 NotebookLM 研究後產生的報告（notebook id: ${notebookId}，內容含引用來源）。` +
+      "整理成精讀筆記時，content 依研究角度分章節，完整保留報告的所有內容、數據與案例，" +
+      "保留引用標記與來源清單，不要壓縮成摘要：\n\n" +
+      reportText;
+    const quotedReport = reportText
+      .trim()
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    return draftAndSave({
+      rawText,
+      fetched: [],
+      sources: [],
+      sourceChannel,
+      type: "research",
+      extra: { topic: question, notebook_id: notebookId },
+      appendix: `> [!note]- 原始研究報告（NotebookLM）\n${quotedReport}`,
+      targetPath,
+    });
   }
 
   return {
@@ -158,11 +185,9 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     },
 
     /**
-     * 主題 -> NotebookLM 研究產生報告 -> 交給同一套 AI 分類邏輯整理成筆記 -> 寫入 vault -> 收尾
-     */
-    /**
      * /notebook 送出後、真正開始研究前：把需求整理成「研究問題 + 研究角度」給使用者確認。
      * 需求裡有網址時先抓網址內容當參考；previous + feedback 是使用者要求修改時的上一版計畫與修改意見。
+     * vault 裡已經有同主題的研究時，plan.existing = { path, title, notebookId }（讓使用者選補充或新建）。
      */
     async planResearch(topic, { previous, feedback } = {}) {
       const cleanTopic = (topic || "").trim();
@@ -172,41 +197,52 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         // eslint-disable-next-line no-await-in-loop
         sources.push(await fetcher.fetch(url));
       }
-      const { system, user } = buildPlanPrompts({ topic: cleanTopic, sources, previous, feedback });
-      return validatePlan(await ai.askJson({ system, user, tool: RESEARCH_PLAN_TOOL }));
+      // 只列找得到 notebook id 的研究：找不到就沒辦法「補充」到同一個 notebook
+      const existingResearch = researchNotesIn(vault).filter((r) => r.notebookId);
+      const { system, user } = buildPlanPrompts({ topic: cleanTopic, sources, previous, feedback, existingResearch });
+      const raw = await ai.askJson({ system, user, tool: RESEARCH_PLAN_TOOL });
+      const plan = validatePlan(raw);
+      const match = existingResearch.find((r) => r.path === raw.existing_match);
+      return match ? { ...plan, existing: { path: match.path, title: match.title, notebookId: match.notebookId } } : plan;
     },
 
     /**
      * 主題（+ 使用者確認過的研究計畫）-> NotebookLM 研究產生報告 -> 整理成精讀筆記 -> 寫入 vault -> 收尾。
-     * 筆記依研究角度分章節、不壓縮；完整的原始報告摺疊附在文末，方便查證。
      */
     async processNotebookResearch(topic, sourceChannel, { plan, onStatus } = {}) {
       const cleanTopic = (topic || "").trim();
       if (!cleanTopic) throw new Error("研究主題是空的");
 
       const { notebookId, reportText, effectiveTopic } = await notebook.researchTopic(cleanTopic, { plan, onStatus });
-      const question = plan?.question || effectiveTopic || cleanTopic;
-      const angles = plan?.angles?.length ? `研究角度：\n${plan.angles.map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n` : "";
-
-      const rawText =
-        `研究問題：${question}（使用者原始輸入：${cleanTopic}）\n\n${angles}` +
-        `以下是用 NotebookLM 研究後產生的報告（notebook id: ${notebookId}，內容含引用來源）。` +
-        "整理成精讀筆記時，content 依研究角度分章節，完整保留報告的所有內容、數據與案例，" +
-        "保留引用標記與來源清單，不要壓縮成摘要：\n\n" +
-        reportText;
-
-      const saved = await draftAndSave({
-        rawText,
-        fetched: [],
-        sources: [],
+      const saved = await saveResearchNote({
+        userInput: cleanTopic,
+        question: plan?.question || effectiveTopic || cleanTopic,
+        angles: plan?.angles,
+        notebookId,
+        reportText,
         sourceChannel,
-        type: "research",
-        extra: { topic: question, notebook_id: notebookId },
-        appendix: `> [!note]- 原始研究報告（NotebookLM）\n${reportText
-          .trim()
-          .split("\n")
-          .map((line) => `> ${line}`)
-          .join("\n")}`,
+      });
+      return { notebookId, ...saved };
+    },
+
+    /**
+     * 補充既有研究：在原本的 notebook 上依新計畫加跑 deep research、重新產生報告，
+     * 再用新報告改寫原筆記（路徑與檔名不變，連結不會斷；notebook id 不變）。
+     */
+    async supplementResearch(notePath, sourceChannel, { plan, onStatus } = {}) {
+      const existing = vault.readNote(notePath);
+      const notebookId = notebookIdOf(existing);
+      if (!notebookId) throw new Error(`「${notePath}」找不到 NotebookLM notebook id，沒辦法補充，請改用「另外新建」`);
+
+      const { reportText } = await notebook.supplementResearch(notebookId, plan, { onStatus });
+      const saved = await saveResearchNote({
+        userInput: existing.frontmatter.topic || existing.title,
+        question: plan.question,
+        angles: plan.angles,
+        notebookId,
+        reportText,
+        sourceChannel,
+        targetPath: notePath,
       });
       return { notebookId, ...saved };
     },

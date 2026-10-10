@@ -111,10 +111,16 @@ async function runQueued(ctx, lane, { startText, run, formatDone, failPrefix, re
 // ponytail: 沒按的計畫不會被清掉，一天幾則的量不需要；量大再加 TTL。
 const pendingPlans = new Map(); // planMessageId -> { topic, plan, userMessageId }
 
-const planKeyboard = (planMessageId) =>
+// vault 裡已有同主題研究時，「開始」拆成「補充到既有筆記」與「另外新建」。
+const planKeyboard = (planMessageId, plan) =>
   Markup.inlineKeyboard([
+    plan.existing
+      ? [
+          Markup.button.callback("➕ 補充到既有筆記", `np|supplement|${planMessageId}`),
+          Markup.button.callback("🆕 另外新建", `np|start|${planMessageId}`),
+        ]
+      : [Markup.button.callback("▶️ 開始研究", `np|start|${planMessageId}`)],
     [
-      Markup.button.callback("▶️ 開始研究", `np|start|${planMessageId}`),
       Markup.button.callback("✏️ 修改", `np|edit|${planMessageId}`),
       Markup.button.callback("✖️ 取消", `np|cancel|${planMessageId}`),
     ],
@@ -130,7 +136,7 @@ function showPlan(ctx, planMsg, { topic, userMessageId, previous, feedback }) {
     try {
       const plan = await pipeline.planResearch(topic, { previous, feedback });
       pendingPlans.set(planMsg.message_id, { topic, plan, userMessageId });
-      await ctx.telegram.editMessageText(ctx.chat.id, planMsg.message_id, undefined, planMessageText(plan), planKeyboard(planMsg.message_id));
+      await ctx.telegram.editMessageText(ctx.chat.id, planMsg.message_id, undefined, planMessageText(plan), planKeyboard(planMsg.message_id, plan));
     } catch (err) {
       console.error(err);
       await editStatus(ctx, planMsg, `❌ 規劃研究方向失敗：${String(err?.message || err)}`);
@@ -238,8 +244,8 @@ export function startBot() {
     showPlan(ctx, planMsg, { topic, userMessageId: ctx.message.message_id });
   });
 
-  // 研究計畫的按鈕：np|start|<計畫訊息 id>、np|edit|...、np|cancel|...
-  bot.action(/^np\|(start|edit|cancel)\|(\d+)$/, async (ctx) => {
+  // 研究計畫的按鈕：np|start|<計畫訊息 id>、np|supplement|...、np|edit|...、np|cancel|...
+  bot.action(/^np\|(start|supplement|edit|cancel)\|(\d+)$/, async (ctx) => {
     const [, action, id] = ctx.match;
     const planMessageId = Number(id);
     const entry = pendingPlans.get(planMessageId);
@@ -262,18 +268,26 @@ export function startBot() {
     }
 
     const { topic, plan, userMessageId } = entry;
-    await editStatus(ctx, planMsg, `▶️ 已開始研究\n\n${formatPlan(plan)}`);
+    const supplement = action === "supplement";
+    await editStatus(ctx, planMsg, `${supplement ? "➕ 已開始補充研究" : "▶️ 已開始研究"}\n\n${formatPlan(plan)}`);
+    // 登入過期時 notebookResearch.js 會自動嘗試 refresh / login 重新登入，
+    // 每個步驟的狀態即時改到狀態訊息上，讓使用者知道不是卡住。
+    const options = (statusMsg) => ({ plan, onStatus: (text) => editStatus(ctx, statusMsg, text) });
     await runQueued(ctx, researchLane, {
       replyTo: userMessageId,
-      startText: `🧪 開始用 NotebookLM 研究「${plan.question}」，可能要幾分鐘到半小時，完成後會通知你...`,
+      startText: supplement
+        ? `🧪 開始補充研究「${plan.existing.title}」，可能要幾分鐘到半小時，完成後會通知你...`
+        : `🧪 開始用 NotebookLM 研究「${plan.question}」，可能要幾分鐘到半小時，完成後會通知你...`,
       run: (statusMsg) =>
-        pipeline.processNotebookResearch(topic, "telegram-notebook", {
-          plan,
-          // 登入過期時 notebookResearch.js 會自動嘗試 refresh / login 重新登入，
-          // 每個步驟的狀態即時改到狀態訊息上，讓使用者知道不是卡住。
-          onStatus: (text) => editStatus(ctx, statusMsg, text),
-        }),
-      formatDone: (outcome) => formatSavedReply("✅ 研究完成，已存進 Obsidian", outcome, [`研究問題：${plan.question}`]),
+        supplement
+          ? pipeline.supplementResearch(plan.existing.path, "telegram-notebook", options(statusMsg))
+          : pipeline.processNotebookResearch(topic, "telegram-notebook", options(statusMsg)),
+      formatDone: (outcome) =>
+        formatSavedReply(
+          supplement ? "✅ 補充研究完成，已更新原筆記" : "✅ 研究完成，已存進 Obsidian",
+          outcome,
+          [`研究問題：${plan.question}`]
+        ),
       failPrefix: `❌ 研究「${plan.question}」失敗`,
     });
   });
