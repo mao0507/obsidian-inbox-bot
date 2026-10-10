@@ -1,5 +1,8 @@
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { Readability } from "@mozilla/readability";
+
+// 網頁常有 jsdom 解析不了的 CSS，錯誤訊息對抽正文沒有影響，不要洗版。
+const quietConsole = new VirtualConsole();
 
 // 全形標點（，。「」等）不會出現在網址裡，遇到就當網址結束，避免「https://a.com/x。順便...」整串被吃進去。
 const URL_RE = /https?:\/\/[^\s<>()"'，。；：、「」『』！？（）]+/g;
@@ -70,7 +73,7 @@ const CHALLENGE_WAIT_MS = 20_000;
 
 // Readability 抽正文並轉成 Markdown；抽不到夠長的內容回傳 null。
 function parseArticleHtml(html, url) {
-  const article = new Readability(new JSDOM(html, { url }).window.document).parse();
+  const article = new Readability(new JSDOM(html, { url, virtualConsole: quietConsole }).window.document).parse();
   const text = article ? htmlToMarkdown(article.content) : "";
   if (!article || text.trim().length < MIN_READABLE_TEXT_LENGTH) return null;
   return {
@@ -165,7 +168,11 @@ async function fetchViaBrowser(url) {
       return ua;
     })).replace("HeadlessChrome", "Chrome");
     const page = await browser.newPage({ locale: "zh-TW", userAgent });
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    if (response?.status() === 429) {
+      await browser.close();
+      return { url, ok: false, error: "網站暫時限制存取（HTTP 429：短時間內請求太多次），晚點再試通常就會恢復" };
+    }
 
     // Cloudflare 的驗證頁通常幾秒內會自己跑完 JS 檢查並跳轉，等它一下。
     for (let waited = 0; waited < CHALLENGE_WAIT_MS && CHALLENGE_TITLE.test(await page.title()); waited += 1000) {
@@ -247,7 +254,7 @@ const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "SVG", "BUTTON", "FORM
 // 讓 AI 能「依原文章節」整理，程式碼也不會被壓成一行。
 // ponytail: 只處理文章常見標籤；表格攤平成每列一行，需要時再換 turndown 之類的套件。
 export function htmlToMarkdown(html) {
-  const { document } = new JSDOM(`<body>${html}</body>`).window;
+  const { document } = new JSDOM(`<body>${html}</body>`, { virtualConsole: quietConsole }).window;
 
   function inline(node) {
     let out = "";

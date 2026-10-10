@@ -36,10 +36,13 @@ export const notebook = createNotebookResearch({
 const webFetcher = createWebFetcher();
 const youtubeFetcher = createYouTubeFetcher({ run: createYtDlpRunner(YTDLP_COMMAND), web: webFetcher });
 
+// 網址 -> Source：YouTube 走 yt-dlp，其他走一般抓取（失敗再用瀏覽器）
+export const fetcher = { fetch: (url) => (isYouTubeUrl(url) ? youtubeFetcher : webFetcher).fetch(url) };
+
 export const pipeline = createPipeline({
   vault,
   ai,
-  fetcher: { fetch: (url) => (isYouTubeUrl(url) ? youtubeFetcher : webFetcher).fetch(url) },
+  fetcher,
   notebook,
   git: { commitAndPush },
 });

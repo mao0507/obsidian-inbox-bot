@@ -352,6 +352,24 @@ node scripts/test-notion.js https://你的-notion-頁面網址
 
 安裝 yt-dlp（獨立的 CLI，不是 npm 依賴）：Windows `winget install yt-dlp.yt-dlp`、macOS `brew install yt-dlp`、Linux `pipx install yt-dlp`。指令名稱不同時，在 `.env` 設 `YTDLP_COMMAND`。
 
+## 舊筆記重建（改版後一次性）
+
+改版前存的筆記（舊分類、舊模板）可以用新流程整批重建：重新抓原文、套精讀模板、放進新分類樹、改新檔名、產生概念卡，並把全 vault 的連結改指向新筆記。
+
+```bash
+pnpm run service:uninstall   # 先停掉背景服務，避免重建期間有新筆記寫入
+pnpm run migrate plan        # dry-run：寫出 _系統/migration-plan.md（哪些筆記、同網址合併、原文抓不抓得到），不改任何筆記
+pnpm run migrate trial 3     # 先重建 3 組讓你檢查品質；舊筆記保留
+pnpm run migrate run         # 重建剩下的全部 → 改寫連結 → 刪除舊筆記 → 重新產生分類地圖
+pnpm run service:install
+```
+
+- 第一次 `trial`／`run` 前會先 commit 並打 git tag `before-migration`。想反悔就在 vault 資料夾執行 `git reset --hard before-migration`。
+- 同一個網址的多篇舊筆記會合併成一篇，保留最早的收錄日期。
+- 原文抓不到（網站下架、需要登入、被限流）或原本就沒有網址的筆記，以原筆記內容為來源重建。
+- 進度存在 `_系統/migration-state.json`，中斷了可以重跑同一個指令接著做。結果見 `_系統/migration-report.md`。
+- NotebookLM 研究筆記不在這裡處理，另見下一節。
+
 ## 已知限制
 
 - 只在你的電腦開機、程式在跑的時候才能接收新內容；電腦關機或程式沒開，傳給 bot 的訊息不會被處理。
@@ -391,7 +409,8 @@ obsidian-inbox-bot/
     ├── browseView.js         /browse 的 Telegram 畫面與按鈕
     ├── notebookResearch.js   NotebookLM Research module：研究流程、登入過期自動修復（notebooklm CLI 是可替換的 seam）
     ├── taskQueue.js          簡單的記憶體 FIFO 佇列（concurrency=1），/notebook 排隊用
-    ├── pipeline.js         串起以上流程（含 processNotebookResearch）
+    ├── pipeline.js         串起以上流程：收件、研究、補充研究、舊筆記重建
+    ├── migration.js        舊筆記重建：盤點分組、試跑、改寫連結、刪除舊筆記
     └── bot.js              Telegram bot（含 /ask、/browse、/notebook 指令）
 
 test/                     `pnpm test`（node:test，不需要 .env）

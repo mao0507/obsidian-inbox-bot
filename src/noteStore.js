@@ -12,9 +12,10 @@ import path from "node:path";
 //   sources：frontmatter 的 source + other_sources 合併成一個陣列
 //   frontmatter：所有 frontmatter 欄位（type、kind、author、published、reading_time...）
 
-// 以 "." 開頭的資料夾（.obsidian、.trash、.git）跟 node_modules 都不是使用者的筆記。
+// 以 "." 開頭的資料夾（.obsidian、.trash、.git）、node_modules、程式自己的 _系統（詞彙表、重建紀錄）都不是使用者的筆記。
+export const SYSTEM_DIR = "_系統";
 function isIgnoredDir(name) {
-  return name.startsWith(".") || name === "node_modules";
+  return name.startsWith(".") || name === "node_modules" || name === SYSTEM_DIR;
 }
 
 const MAX_FILENAME_LENGTH = 60;
@@ -267,6 +268,22 @@ export function createNoteStore(root) {
       if (updated === raw) return false;
       fs.writeFileSync(abs(relPath), updated, "utf8");
       return true;
+    },
+
+    /** 刪除檔案（不存在就略過），並往上清掉因此變空的資料夾（不會刪到 vault 根目錄）。 */
+    deleteFile(relPath) {
+      fs.rmSync(abs(relPath), { force: true });
+      const parts = relPath.split("/").slice(0, -1);
+      while (parts.length) {
+        const dir = abs(parts.join("/"));
+        try {
+          if (fs.readdirSync(dir).length) break;
+          fs.rmdirSync(dir);
+        } catch {
+          break;
+        }
+        parts.pop();
+      }
     },
 
     /** 讀取任意檔案（例如 _系統/tags.json），不存在回傳 null。 */

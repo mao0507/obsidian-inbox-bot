@@ -1,6 +1,6 @@
 import path from "node:path";
 import { findUrls } from "./extractContent.js";
-import { findDuplicateNote } from "./duplicateCheck.js";
+import { findDuplicateNote, normalizeUrl } from "./duplicateCheck.js";
 import { syncRelatedNotes } from "./relatedNotes.js";
 import { syncMocForFolder } from "./mocSync.js";
 import { createNoteDrafter } from "./noteDrafter.js";
@@ -32,7 +32,8 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
    * -> vault 筆記同步到 git（放最後，前兩步異動的檔案會一起被這次 commit 帶上去）
    * 任何一步失敗都不影響筆記本身已經寫入這件事，錯誤只印在終端機、回傳的狀態物件會反映失敗。
    */
-  async function finalizeWrittenNote(draft, result) {
+  // skipGit：批次作業（舊筆記重建）每篇不各自 commit，最後一次 commit。
+  async function finalizeWrittenNote(draft, result, { skipGit = false } = {}) {
     let relatedResult = { linkedCount: 0 };
     let mocResult = { updated: false };
     try {
@@ -50,11 +51,13 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       console.warn(`[moc-sync] 更新分類地圖失敗：${err.message}`);
     }
 
-    let gitResult;
-    try {
-      gitResult = await git.commitAndPush(`新增筆記：${draft.title}（${draft.folder}）`);
-    } catch (err) {
-      gitResult = { attempted: true, pushed: false, error: err.message };
+    let gitResult = { attempted: false };
+    if (!skipGit) {
+      try {
+        gitResult = await git.commitAndPush(`新增筆記：${draft.title}（${draft.folder}）`);
+      } catch (err) {
+        gitResult = { attempted: true, pushed: false, error: err.message };
+      }
     }
     return { gitResult, relatedResult, mocResult };
   }
@@ -84,7 +87,17 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
 
   // extra：流程特有的 frontmatter（例如研究的 topic / notebook_id）；appendix：接在正文最後的區塊。
   // targetPath：改寫既有筆記（補充研究）時給，筆記留在原路徑、檔名不變，其他筆記的連結不會斷。
-  async function draftAndSave({ rawText, fetched, sources, sourceChannel, type, extra = {}, appendix = "", targetPath }) {
+  async function draftAndSave({
+    rawText,
+    fetched,
+    sources,
+    sourceChannel,
+    type,
+    extra = {},
+    appendix = "",
+    targetPath,
+    skipGit = false,
+  }) {
     // 每篇重新讀一次詞彙表與既有資料夾：使用者可能手動改過 tags.json 或搬過筆記。
     const vocab = createTagVocabulary(vault);
     const drafter = createNoteDrafter({
@@ -129,7 +142,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     } catch (err) {
       console.warn(`[cards] 寫入概念卡失敗：${err.message}`);
     }
-    return { draft: note, result, warnings, createdTags, cards, ...(await finalizeWrittenNote(note, result)) };
+    return { draft: note, result, warnings, createdTags, cards, ...(await finalizeWrittenNote(note, result, { skipGit })) };
   }
 
   // 研究報告 -> 精讀筆記：依研究角度分章節、不壓縮；完整原始報告摺疊附在文末，方便查證。
@@ -182,6 +195,40 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       // 抓不到的網址照樣建立筆記（只靠網址與使用者留言整理），但要讓使用者知道原因
       const fetchErrors = fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error }));
       return { ...saved, fetchErrors };
+    },
+
+    /**
+     * 舊筆記重建（見 migration.js）：一組舊筆記（同一個來源網址的會合併成一組）用新流程重新產生一篇。
+     * 重新抓原文；原文抓不到（或本來就沒有網址）時，原筆記內容就是唯一來源。
+     * 保留最早的收錄日期與原本的收件管道；不各自 commit（批次結束時一次 commit）。
+     */
+    async rebuildNote(oldNotes) {
+      const urls = [];
+      for (const url of oldNotes.flatMap((n) => n.sources)) {
+        if (!urls.some((u) => normalizeUrl(u) === normalizeUrl(url))) urls.push(url);
+      }
+      const fetched = [];
+      for (const url of urls.slice(0, MAX_URLS_PER_MESSAGE)) {
+        // eslint-disable-next-line no-await-in-loop
+        fetched.push(await fetcher.fetch(url));
+      }
+      const titles = [...new Set(oldNotes.map((n) => n.title).filter(Boolean))].join("／");
+      const rawText = fetched.some((f) => f.ok)
+        ? `重新整理既有筆記（原標題：${titles}）。請以擷取到的原文為準，重新整理成精讀筆記。`
+        : `重新整理既有筆記（原標題：${titles}）。原文已無法取得，以下原筆記內容是唯一來源，完整保留其中所有資訊：\n\n` +
+          oldNotes.map((n) => n.body).join("\n\n---\n\n");
+      const dates = oldNotes.map((n) => n.frontmatter.date_added).filter(Boolean).sort();
+
+      const saved = await draftAndSave({
+        rawText,
+        fetched,
+        sources: urls,
+        sourceChannel: oldNotes[0].frontmatter.via || "migration",
+        type: fetched.some((f) => f.kind === "video") ? "video" : urls.length ? "article" : "note",
+        extra: dates.length ? { date_added: dates[0] } : {},
+        skipGit: true,
+      });
+      return { ...saved, fetchErrors: fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error })) };
     },
 
     /**

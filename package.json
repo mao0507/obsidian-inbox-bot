@@ -14,7 +14,8 @@
     "service:install": "node scripts/service.js install",
     "service:uninstall": "node scripts/service.js uninstall",
     "service:logs": "node scripts/service.js logs",
-    "service:restart": "node scripts/service.js restart"
+    "service:restart": "node scripts/service.js restart",
+    "migrate": "node scripts/migrate-vault.js"
   },
   "engines": {
     "node": ">=18"
