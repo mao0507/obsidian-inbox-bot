@@ -2,7 +2,7 @@ import { Telegraf } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "./config.js";
 import { answerFromVault } from "./askVault.js";
 import { notebook, pipeline } from "./app.js";
-import { enqueueTask, queuePendingCount, isProcessing } from "./taskQueue.js";
+import { createTaskQueue } from "./taskQueue.js";
 import { renderFolderView, renderNoteView, resolveBrowseToken } from "./browseView.js";
 
 function isAllowed(userId) {
@@ -52,6 +52,49 @@ function startTypingLoop(ctx) {
   return () => clearInterval(timer);
 }
 
+// Telegraf 的 polling 會等「這一批 update 的 handler 全部跑完」才去抓下一批，
+// handler 裡 await 長任務（抓網頁、AI 整理、研究）會讓整個 bot 卡住、後面的指令都收不到。
+// 所以長任務一律丟到背景（不 await），handler 立刻返回。
+function inBackground(task) {
+  task().catch((err) => console.error("[telegram] 背景任務失敗", err));
+}
+
+// 一般內容跟 /notebook 各自一條 lane（見 taskQueue.js），兩條可以同時跑。
+const intakeLane = createTaskQueue();
+const researchLane = createTaskQueue();
+
+/**
+ * 把長任務排進 lane：立刻回覆排隊位置或「開始處理」，輪到它時換成處理中訊息並顯示打字動畫，
+ * 完成或失敗時發一則新訊息（回覆使用者原本那則，會推播），並刪掉中間的狀態訊息。
+ * run(statusMsg) 可以拿 statusMsg 即時改寫進度（例如 NotebookLM 自動重新登入）。
+ */
+async function runQueued(ctx, lane, { startText, run, formatDone, failPrefix }) {
+  const ahead = lane.size();
+  const statusMsg = await ctx.reply(
+    ahead > 0 ? `📋 已收到，排第 ${ahead + 1} 個（前面還有 ${ahead} 個），輪到時會開始處理，完成後通知你。` : startText
+  );
+  const replyToUser = { reply_parameters: { message_id: ctx.message.message_id } };
+
+  inBackground(async () => {
+    let stopTyping = () => {};
+    try {
+      const outcome = await lane.enqueue(() => run(statusMsg), {
+        onStart: async () => {
+          stopTyping = startTypingLoop(ctx);
+          if (ahead > 0) await editStatus(ctx, statusMsg, startText);
+        },
+      });
+      await ctx.reply(formatDone(outcome), replyToUser);
+    } catch (err) {
+      console.error(err);
+      await ctx.reply(`${failPrefix}：${String(err?.message || err)}`, replyToUser);
+    } finally {
+      stopTyping();
+      await ctx.deleteMessage(statusMsg.message_id).catch(() => {});
+    }
+  });
+}
+
 export function startBot() {
   if (!TELEGRAM_BOT_TOKEN) {
     console.log("[telegram] 沒有設定 TELEGRAM_BOT_TOKEN，略過啟動 Telegram bot");
@@ -66,13 +109,9 @@ export function startBot() {
     console.log(`[telegram] 白名單已啟用，只有 ${TELEGRAM_ALLOWED_USER_IDS.length} 個 user ID 能使用這個 bot`);
   }
 
-  // Telegraf 預設每個指令 handler 執行超過 90 秒（handlerTimeout 預設值）就會被它自己
-  // 判定逾時、印出 TimeoutError（不是真的把 handler 砍掉，只是它自己放棄追蹤、當成錯誤記一筆）。
-  // /notebook 的研究流程本來就常常超過 90 秒（deep 模式甚至可能到半小時），
-  // 這裡關掉 Telegraf 這層自己的逾時判定——真正的逾時保護已經在 notebookResearch.js
-  // 裡針對每個 notebooklm 子指令分別設好了（RESEARCH_TIMEOUT_MS、REPORT_TIMEOUT_MS 等），
-  // 不需要 Telegraf 再疊加一層更短的逾時。
-  const bot = new Telegraf(TELEGRAM_BOT_TOKEN, { handlerTimeout: Infinity });
+  // 長任務都在背景跑（見 inBackground / runQueued），handler 本身很快就返回，
+  // 用 Telegraf 預設的 handlerTimeout 即可；真正的逾時保護在各個 CLI 呼叫裡。
+  const bot = new Telegraf(TELEGRAM_BOT_TOKEN);
 
   // 權限檢查放在最前面的 middleware，沒過的話後面的 bot.start / bot.command / bot.on('text') 都不會執行。
   bot.use(async (ctx, next) => {
@@ -117,19 +156,21 @@ export function startBot() {
       return;
     }
 
+    // 查詢不排隊（不會被一般收件或研究擋住），但一樣在背景跑，不卡住 polling。
     const processingMsg = await ctx.reply("🔍 正在從筆記庫裡查詢...");
-    const stopTyping = startTypingLoop(ctx);
-
-    try {
-      const { answer, matchedCount } = await answerFromVault(question);
-      const footer = matchedCount > 0 ? `\n\n（搜尋了 ${matchedCount} 篇相關筆記）` : "";
-      await editStatus(ctx, processingMsg, `${answer}${footer}`);
-    } catch (err) {
-      console.error(err);
-      await editStatus(ctx, processingMsg, `❌ 查詢失敗：${String(err?.message || err)}`);
-    } finally {
-      stopTyping();
-    }
+    inBackground(async () => {
+      const stopTyping = startTypingLoop(ctx);
+      try {
+        const { answer, matchedCount } = await answerFromVault(question);
+        const footer = matchedCount > 0 ? `\n\n（搜尋了 ${matchedCount} 篇相關筆記）` : "";
+        await editStatus(ctx, processingMsg, `${answer}${footer}`);
+      } catch (err) {
+        console.error(err);
+        await editStatus(ctx, processingMsg, `❌ 查詢失敗：${String(err?.message || err)}`);
+      } finally {
+        stopTyping();
+      }
+    });
   });
 
   // /notebook <主題>：不是查現有筆記（那是 /ask），而是用 NotebookLM 針對主題做真正的
@@ -150,43 +191,17 @@ export function startBot() {
       return;
     }
 
-    // 排隊位置：如果現在有任務正在跑，這則新任務至少要等它跑完；
-    // pending 是「還沒開始執行」的既有任務數，兩者加起來才是這則新任務前面總共有幾個。
-    const aheadCount = queuePendingCount() + (isProcessing() ? 1 : 0);
-    const startingText = `🧪 開始用 NotebookLM 研究「${topic}」，依複雜度可能要幾分鐘，請稍候...`;
-    const processingMsg = await ctx.reply(
-      aheadCount > 0
-        ? `📋 已加入研究佇列（前面還有 ${aheadCount} 個任務在排隊），輪到你的時候會開始處理，完成後會通知你。`
-        : startingText
-    );
-
-    let stopTyping = () => {};
-
-    try {
-      const outcome = await enqueueTask(
-        () =>
-          pipeline.processNotebookResearch(topic, "telegram-notebook", {
-            // 登入過期時 notebookResearch.js 會自動嘗試 refresh / login 重新登入，
-            // 這裡把每個步驟的狀態即時改到同一則處理中訊息上，讓使用者知道不是卡住。
-            onStatus: (text) => editStatus(ctx, processingMsg, text),
-          }),
-        {
-          onStart: async () => {
-            stopTyping = startTypingLoop(ctx);
-            // 排隊時發過一則「已加入佇列」的訊息，真正輪到它開始跑的時候換成處理中的訊息；
-            // 沒排隊、直接開始執行的話上面那則本來就已經是這句了，不用重複編輯。
-            if (aheadCount > 0) await editStatus(ctx, processingMsg, startingText);
-          },
-        }
-      );
-
-      await editStatus(ctx, processingMsg, formatSavedReply("✅ 研究完成，已存進 Obsidian", outcome, [`主題：${topic}`]));
-    } catch (err) {
-      console.error(err);
-      await editStatus(ctx, processingMsg, `❌ 研究失敗：${String(err?.message || err)}`);
-    } finally {
-      stopTyping();
-    }
+    await runQueued(ctx, researchLane, {
+      startText: `🧪 開始用 NotebookLM 研究「${topic}」，依複雜度可能要幾分鐘，請稍候...`,
+      run: (statusMsg) =>
+        pipeline.processNotebookResearch(topic, "telegram-notebook", {
+          // 登入過期時 notebookResearch.js 會自動嘗試 refresh / login 重新登入，
+          // 每個步驟的狀態即時改到狀態訊息上，讓使用者知道不是卡住。
+          onStatus: (text) => editStatus(ctx, statusMsg, text),
+        }),
+      formatDone: (outcome) => formatSavedReply("✅ 研究完成，已存進 Obsidian", outcome, [`主題：${topic}`]),
+      failPrefix: `❌ 研究「${topic}」失敗`,
+    });
   });
 
   // /notebooklm_login：伺服器跑著的時候也能直接觸發 `notebooklm login`，不用另外開終端機。
@@ -200,12 +215,15 @@ export function startBot() {
 
     const msg = await ctx.reply("🔑 正在執行 notebooklm login，跑這個服務的機器上應該會跳出瀏覽器登入畫面，請稍候...");
 
-    try {
-      const output = await notebook.login();
-      await editStatus(ctx, msg, `✅ 登入完成\n\n${output.trim().slice(-3000) || "(無輸出)"}`);
-    } catch (err) {
-      await editStatus(ctx, msg, `❌ 登入失敗：${err.message}`);
-    }
+    // 要等使用者在瀏覽器裡完成登入（最多 5 分鐘），在背景等，不卡住其他指令。
+    inBackground(async () => {
+      try {
+        const output = await notebook.login();
+        await editStatus(ctx, msg, `✅ 登入完成\n\n${output.trim().slice(-3000) || "(無輸出)"}`);
+      } catch (err) {
+        await editStatus(ctx, msg, `❌ 登入失敗：${err.message}`);
+      }
+    });
   });
 
   // /browse：列出目前 vault 裡的分類（vault 根目錄下的資料夾），可以用按鈕一路點下去查
@@ -243,35 +261,19 @@ export function startBot() {
     const text = ctx.message.text;
     if (text.startsWith("/")) return; // 忽略其他指令
 
-    const processingMsg = await ctx.reply("🔎 收到，處理中...");
-
-    // Telegram 的「正在輸入...」動畫大概只會維持約 5 秒就自動消失，
-    // Notion 頁面這種長時間處理（可能到 20~30 秒）要每隔幾秒重送一次才會全程顯示。
-    const stopTyping = startTypingLoop(ctx);
-
-    try {
-      const outcome = await pipeline.processIncomingContent(text, "telegram");
-
-      if (outcome.duplicate) {
-        await editStatus(
-          ctx,
-          processingMsg,
-          [
-            "📎 這篇文章已經存過了，沒有建立新筆記。",
-            `既有筆記：${outcome.duplicatePath}`,
-            "如果確定要重複建立，把連結後面加個字或不同網址再丟一次即可。",
-          ].join("\n")
-        );
-        return;
-      }
-
-      await editStatus(ctx, processingMsg, formatSavedReply("✅ 已存進 Obsidian", outcome));
-    } catch (err) {
-      console.error(err);
-      await editStatus(ctx, processingMsg, `❌ 處理失敗：${String(err?.message || err)}`);
-    } finally {
-      stopTyping();
-    }
+    await runQueued(ctx, intakeLane, {
+      startText: "🔎 收到，處理中...",
+      run: () => pipeline.processIncomingContent(text, "telegram"),
+      formatDone: (outcome) =>
+        outcome.duplicate
+          ? [
+              "📎 這篇文章已經存過了，沒有建立新筆記。",
+              `既有筆記：${outcome.duplicatePath}`,
+              "如果確定要重複建立，把連結後面加個字或不同網址再丟一次即可。",
+            ].join("\n")
+          : formatSavedReply("✅ 已存進 Obsidian", outcome),
+      failPrefix: "❌ 處理失敗",
+    });
   });
 
   bot.catch((err) => console.error("[telegram] bot error", err));
