@@ -165,3 +165,9 @@ test("note body follows the template and frontmatter has reading_time", async ()
   assert.equal(note.frontmatter.kind, "片段");
   assert.match(note.frontmatter.reading_time, /分鐘$/);
 });
+
+test("fetch failures are surfaced in the outcome", async () => {
+  const { pipeline } = setup(); // 預設 fetcher 對任何網址都回傳失敗
+  const out = await pipeline.processIncomingContent("https://blocked.example/post", "telegram");
+  assert.deepEqual(out.fetchErrors, [{ url: "https://blocked.example/post", error: "not found" }]);
+});

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { htmlToMarkdown, findUrls } from "../src/extractContent.js";
+import { htmlToMarkdown, findUrls, createWebFetcher } from "../src/extractContent.js";
 
 test("keeps article structure: headings, lists, code blocks, inline code, links", () => {
   const md = htmlToMarkdown(`
@@ -38,4 +38,53 @@ test("findUrls stops at full-width punctuation and trims trailing punctuation", 
 test("code blocks nested in custom elements (e.g. <is-land>) stay fenced", () => {
   const md = htmlToMarkdown(`<div><is-land><div><pre><island-slot><code>a();\nb();</code></island-slot></pre></div></is-land></div>`);
   assert.match(md, /```\na\(\);\nb\(\);\n```/);
+});
+
+// 假的 static / browser 抓取，記錄被呼叫的順序
+function fetcherWith({ staticResult, browserResult }) {
+  const calls = [];
+  const fetcher = createWebFetcher({
+    fetchStatic: async (url) => (calls.push("static"), { url, ...staticResult }),
+    fetchBrowser: async (url) => (calls.push("browser"), { url, ...browserResult }),
+  });
+  return { fetcher, calls };
+}
+const long = "內".repeat(800);
+
+test("static fetch with enough content is used directly, no browser", async () => {
+  const { fetcher, calls } = fetcherWith({ staticResult: { ok: true, text: long } });
+  assert.equal((await fetcher.fetch("https://a.com")).text, long);
+  assert.deepEqual(calls, ["static"]);
+});
+
+test("static fetch blocked (403) falls back to the browser", async () => {
+  const { fetcher, calls } = fetcherWith({
+    staticResult: { ok: false, error: "HTTP 403" },
+    browserResult: { ok: true, text: long },
+  });
+  const r = await fetcher.fetch("https://www.dcard.tw/f/travel/p/1");
+  assert.equal(r.ok, true);
+  assert.deepEqual(calls, ["static", "browser"]);
+});
+
+test("static content too short tries the browser and keeps the longer one", async () => {
+  const short = { ok: true, text: "og 描述而已" };
+  assert.equal((await fetcherWith({ staticResult: short, browserResult: { ok: true, text: long } }).fetcher.fetch("https://a.com")).text, long);
+  assert.equal((await fetcherWith({ staticResult: short, browserResult: { ok: false, error: "x" } }).fetcher.fetch("https://a.com")).text, "og 描述而已");
+});
+
+test("both failing reports both reasons", async () => {
+  const { fetcher } = fetcherWith({
+    staticResult: { ok: false, error: "HTTP 403" },
+    browserResult: { ok: false, error: "被網站的防爬蟲驗證擋下" },
+  });
+  const r = await fetcher.fetch("https://a.com");
+  assert.equal(r.ok, false);
+  assert.match(r.error, /HTTP 403[\s\S]*防爬蟲/);
+});
+
+test("notion pages go straight to the browser", async () => {
+  const { fetcher, calls } = fetcherWith({ browserResult: { ok: true, text: long } });
+  await fetcher.fetch("https://foo.notion.site/page");
+  assert.deepEqual(calls, ["browser"]);
 });

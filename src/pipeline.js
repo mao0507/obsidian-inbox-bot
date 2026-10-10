@@ -101,7 +101,10 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       }
 
       const type = urls.length ? "article" : "note";
-      return draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel, type });
+      const saved = await draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel, type });
+      // 抓不到的網址照樣建立筆記（只靠網址與使用者留言整理），但要讓使用者知道原因
+      const fetchErrors = fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error }));
+      return { ...saved, fetchErrors };
     },
 
     /**
