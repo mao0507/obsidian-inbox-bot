@@ -1,81 +1,54 @@
 import { TAXONOMY } from "./taxonomy.js";
+import { wikiLink } from "./noteStore.js";
 
-// 之前分類地圖（<類別>地圖.md）完全要手動維護——動態分類（AI / 學習 / 旅遊）
-// 底下寫進新筆記之後，沒有任何機制自動反映到索引檔案裡。
-// 這支模組在每次寫入動態分類筆記之後，重新掃描整個分類資料夾、依實際存在的
-// 子資料夾巢狀結構完整重新產生一份 <類別>地圖.md，取代手動維護。
-//
-// 用「整份重新產生」而不是增量插入，是為了讓地圖內容永遠跟 vault 實際資料夾結構
-// 一致（不會因為某個 edge case 沒處理到而長期跟真實結構產生落差），
-// 筆記數量在這個規模（幾十~幾百篇）下重新掃描整個資料夾樹幾乎是瞬間完成。
-//
-// 注意：這個檔案是自動產生的索引，每次動態分類有新筆記進來都會整份覆寫。
-// 想在地圖上額外寫點什麼，請寫在筆記本身裡，不要手動編輯 <類別>地圖.md，
-// 手動加的內容下次自動重新產生時會被覆蓋掉。
+// 分類地圖（<大項目>地圖.md）：每次有筆記寫進某個大項目，就整份重新產生一次，
+// 依「中項目 → 主 tag」分段列出所有筆記連結（附篇數），取代手動維護的索引。
+// 整份重新產生讓地圖永遠跟 vault 實際資料夾一致；這個檔案會被覆寫，想備註請寫在筆記本身。
 
-// 把 top 底下所有筆記依「所在資料夾」分組：[{ parts: ["ClaudeCode","教學文章"], files: ["筆記A", ...] }]
-function groupNotesByFolder(vault, top, mocFilename) {
-  const byDir = new Map();
-  for (const note of vault.listNotes(top)) {
-    const parts = note.path.split("/").slice(1); // 去掉 top 本身
-    const file = parts.pop();
-    if (parts.length === 0 && file === mocFilename) continue;
-    const key = parts.join("/");
-    if (!byDir.has(key)) byDir.set(key, { parts, files: [] });
-    byDir.get(key).files.push(file.slice(0, -3));
-  }
-  const groups = [...byDir.values()];
-  groups.forEach((g) => g.files.sort((a, b) => a.localeCompare(b, "zh-Hant")));
-  return groups;
+const byName = (a, b) => a.localeCompare(b, "zh-Hant");
+
+// 中項目照分類樹裡的順序，自訂的中項目（國家、專案名）排在後面、依名稱排序。
+function subcategoryOrder(top) {
+  const order = TAXONOMY[top].subcategories || [];
+  const rank = (s) => (order.includes(s) ? order.indexOf(s) : Infinity);
+  return (a, b) => rank(a) - rank(b) || byName(a, b);
 }
 
 /**
- * 幫傳入的動態分類頂層資料夾（例如 "AI"、"旅遊"、"學習"）重新產生一份 <top>地圖.md，
- * 依實際存在的子資料夾巢狀結構分段列出所有筆記連結（## 上層 / ### 下層 依深度遞增）。
- * 不是這三個動態分類之一就直接跳過、什麼都不做。資料夾底下完全沒有筆記時也跳過，
- * 不會生出一份空地圖。
+ * 重新產生 <top>地圖.md。不是大項目、是收件匣、或底下沒有筆記時跳過。
+ * 不在「中項目/主tag」兩層底下的筆記（例如舊結構留下的）歸在「其他」。
  */
 export function regenerateMoc(vault, top) {
-  if (!TAXONOMY[top] || TAXONOMY[top].noTagLevel) return { updated: false }; // 收件匣不需要地圖
+  if (!TAXONOMY[top] || TAXONOMY[top].noTagLevel) return { updated: false };
 
-  const mocFilename = `${top}地圖.md`;
-  const groups = groupNotesByFolder(vault, top, mocFilename);
-
-  if (groups.length === 0) return { updated: false };
-
-  groups.sort((a, b) => a.parts.join("/").localeCompare(b.parts.join("/"), "zh-Hant"));
+  const groups = new Map(); // 中項目 -> Map(tag -> paths[])
+  for (const note of vault.listNotes(top)) {
+    if (note.frontmatter?.type === "MOC") continue;
+    const parts = note.path.split("/");
+    const [sub, tag] = parts.length === 4 ? [parts[1], parts[2]] : ["其他", parts.slice(1, -1).join("/") || top];
+    if (!groups.has(sub)) groups.set(sub, new Map());
+    const tags = groups.get(sub);
+    if (!tags.has(tag)) tags.set(tag, []);
+    tags.get(tag).push(note.path);
+  }
+  if (groups.size === 0) return { updated: false };
 
   const lines = ["---", `title: ${top}地圖`, "type: MOC", "---", "", `# ${top} 地圖`, ""];
-  let prevParts = [];
-  for (const group of groups) {
-    // 只要有一層跟前一組不同，這一層以下（包含後面更深的層）都要重印標題，
-    // 就算剛好文字跟前一組同層剛好一樣也一樣要印
-    // （例如 ClaudeCode/教學文章 換到 OpenAI/教學文章 這種巧合同名）。
-    let changed = false;
-    group.parts.forEach((part, i) => {
-      if (changed || prevParts[i] !== part) {
-        changed = true;
-        lines.push(`${"#".repeat(Math.min(2 + i, 6))} ${part}`);
-      }
-    });
-    prevParts = group.parts;
-    lines.push("");
-    group.files.forEach((f) => lines.push(`- [[${f}]]`));
-    lines.push("");
+  for (const sub of [...groups.keys()].sort(subcategoryOrder(top))) {
+    lines.push(`## ${sub}`, "");
+    const tags = groups.get(sub);
+    for (const tag of [...tags.keys()].sort(byName)) {
+      const notes = tags.get(tag).sort(byName);
+      lines.push(`### ${tag}（${notes.length}）`, "", ...notes.map((p) => `- ${wikiLink(p)}`), "");
+    }
   }
 
-  const mocPath = `${top}/${mocFilename}`;
-  vault.writeFile(mocPath, lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n");
-
+  const mocPath = `${top}/${top}地圖.md`;
+  vault.writeFile(mocPath, `${lines.join("\n").trimEnd()}\n`);
   return { updated: true, mocPath };
 }
 
-/**
- * pipeline.js 寫完一篇筆記後呼叫：folder 是這篇筆記實際去的資料夾路徑
- * （例如 "AI/ClaudeCode/教學文章"），只有第一段對應到動態分類時才會重新產生地圖，
- * 其他分類（收件匣/知識庫/專案...）直接跳過、回傳 { updated: false }。
- */
+/** pipeline 寫完一篇筆記後呼叫：重新產生該筆記所屬大項目的地圖。 */
 export function syncMocForFolder(vault, folder) {
-  const top = folder.split("/")[0];
-  return regenerateMoc(vault, top);
+  return regenerateMoc(vault, folder.split("/")[0]);
 }

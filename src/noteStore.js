@@ -159,6 +159,15 @@ function parseNote(relPath, raw) {
   };
 }
 
+/**
+ * 指向 vault 內一篇筆記的 wikilink：用完整路徑（檔名可能跨資料夾重複，只寫檔名會連錯），顯示文字是檔名。
+ * 例如 "技術/前端框架/Vue/Vue 生命週期.md" -> [[技術/前端框架/Vue/Vue 生命週期|Vue 生命週期]]
+ */
+export function wikiLink(relPath) {
+  const target = relPath.replace(/\.md$/i, "");
+  return `[[${target}|${target.slice(target.lastIndexOf("/") + 1)}]]`;
+}
+
 function toRel(...parts) {
   return parts.filter(Boolean).join("/");
 }
