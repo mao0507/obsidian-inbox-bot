@@ -67,6 +67,9 @@ export async function fetchUrlContent(url) {
 // 或是抓到的內容短到沒意義。這個門檻用來判斷「要不要退而求其次改用 og:description」。
 const MIN_READABLE_TEXT_LENGTH = 40;
 
+// 原文盡量完整交給 AI（精讀筆記要保留細節）。8 萬字約等於一本小冊子，超過才截斷，避免極端頁面塞爆 prompt。
+const MAX_SOURCE_CHARS = 80_000;
+
 async function fetchViaFetch(url) {
   try {
     const res = await fetch(url, {
@@ -88,7 +91,7 @@ async function fetchViaFetch(url) {
     const dom = new JSDOM(html, { url });
     const article = new Readability(dom.window.document).parse();
 
-    const readableText = article ? htmlToText(article.content) : "";
+    const readableText = article ? htmlToMarkdown(article.content) : "";
 
     if (!article || readableText.trim().length < MIN_READABLE_TEXT_LENGTH) {
       // Readability 抓不到夠長的正文：常見於 Threads、X（Twitter）、Instagram 這類
@@ -123,8 +126,8 @@ async function fetchViaFetch(url) {
       title: article.title || "",
       byline: article.byline || "",
       excerpt: article.excerpt || "",
-      // Readability 回傳的是 HTML，這裡簡單轉成純文字，避免 prompt 塞一堆標籤浪費 token
-      text: readableText.slice(0, 12000),
+      published: (article.publishedTime || "").slice(0, 10),
+      text: readableText.slice(0, MAX_SOURCE_CHARS),
     };
   } catch (err) {
     return { url, ok: false, error: String(err?.message || err) };
@@ -203,7 +206,7 @@ async function fetchNotionViaPlaywright(url) {
       title,
       byline: "",
       excerpt: "",
-      text: cleaned.slice(0, 12000),
+      text: cleaned.slice(0, MAX_SOURCE_CHARS),
     };
   } catch (err) {
     if (browser) await browser.close().catch(() => {});
@@ -233,16 +236,75 @@ async function waitForStableText(page, { maxWaitMs, pollMs, minLength }) {
   return page.evaluate(() => document.body.innerText || "");
 }
 
-function htmlToText(html) {
-  return html
-    .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|li|h[1-6])>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+const BLOCK_TAGS = new Set(["P", "DIV", "SECTION", "ARTICLE", "HEADER", "FOOTER", "FIGURE", "FIGCAPTION", "TABLE", "TR"]);
+const BLOCK_SELECTOR = "h1,h2,h3,h4,h5,h6,pre,ul,ol,blockquote,p,div,section,table";
+const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "SVG", "BUTTON", "FORM"]);
+
+// Readability 回傳的正文 HTML 轉成 Markdown：保留標題層級、清單、程式碼區塊、引用、連結，
+// 讓 AI 能「依原文章節」整理，程式碼也不會被壓成一行。
+// ponytail: 只處理文章常見標籤；表格攤平成每列一行，需要時再換 turndown 之類的套件。
+export function htmlToMarkdown(html) {
+  const { document } = new JSDOM(`<body>${html}</body>`).window;
+
+  function inline(node) {
+    let out = "";
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) {
+        out += child.textContent.replace(/\s+/g, " ");
+        continue;
+      }
+      if (child.nodeType !== 1 || SKIP_TAGS.has(child.tagName)) continue;
+      const text = inline(child);
+      switch (child.tagName) {
+        case "CODE": // 多行的 <code>（沒有包在 <pre> 裡）也當成程式碼區塊
+          out += child.textContent.includes("\n") ? `\n\`\`\`\n${child.textContent}\n\`\`\`\n` : `\`${child.textContent}\``;
+          break;
+        case "A": {
+          const href = child.getAttribute("href") || "";
+          out += /^https?:/.test(href) && text.trim() ? `[${text.trim()}](${href})` : text;
+          break;
+        }
+        case "STRONG":
+        case "B":
+          out += text.trim() ? `**${text.trim()}**` : "";
+          break;
+        case "BR":
+          out += "\n";
+          break;
+        default:
+          out += BLOCK_TAGS.has(child.tagName) || /^H[1-6]$/.test(child.tagName) ? `\n${text}\n` : text;
+      }
+    }
+    return out;
+  }
+
+  function block(node, out = []) {
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) {
+        if (child.textContent.trim()) out.push(child.textContent.trim());
+        continue;
+      }
+      if (child.nodeType !== 1 || SKIP_TAGS.has(child.tagName)) continue;
+      const tag = child.tagName;
+      if (/^H[1-6]$/.test(tag)) {
+        out.push(`${"#".repeat(Number(tag[1]))} ${inline(child).trim()}`);
+      } else if (tag === "PRE") {
+        const lang = (child.querySelector("code")?.className.match(/language-(\S+)/) || [])[1] || "";
+        out.push(`\`\`\`${lang}\n${child.textContent.replace(/\n$/, "")}\n\`\`\``);
+      } else if (tag === "UL" || tag === "OL") {
+        const items = [...child.children].filter((li) => li.tagName === "LI");
+        out.push(items.map((li, i) => `${tag === "OL" ? `${i + 1}.` : "-"} ${inline(li).trim()}`).join("\n"));
+      } else if (tag === "BLOCKQUOTE") {
+        out.push(block(child, []).join("\n\n").split("\n").map((line) => `> ${line}`).join("\n"));
+      } else if (child.querySelector(BLOCK_SELECTOR)) {
+        block(child, out); // 容器（含 <is-land> 這類自訂元素）裡還有區塊元素，往下拆
+      } else {
+        const text = inline(child).trim();
+        if (text) out.push(text);
+      }
+    }
+    return out;
+  }
+
+  return block(document.body).join("\n\n").replace(/\n{3,}/g, "\n\n").trim();
 }

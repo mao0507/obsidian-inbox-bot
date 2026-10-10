@@ -8,11 +8,17 @@ import { createPipeline } from "../src/pipeline.js";
 
 const draft = {
   folder: "知識庫",
-  filename: "Docker 健康檢查",
   title: "Docker 健康檢查",
   tags: ["Docker"],
   summary: "healthcheck 寫法",
-  body: "內文",
+  kind: "片段",
+  tldr: "用 healthcheck 讓 compose 知道服務活著",
+  key_points: ["interval 30s"],
+  content: "### 寫法\n內文",
+  review_questions: [{ question: "Q", answer: "A" }],
+  author: "AI 猜的作者",
+  published: "",
+  original_title: "",
 };
 
 // 假依賴：每個 test 拿一組新的，calls 記錄被呼叫的情形。
@@ -75,7 +81,7 @@ test("url: fetched content reaches the AI prompt and source lands in frontmatter
 
 test("url already in vault: reports duplicate without calling AI", async () => {
   const { vault, calls, pipeline } = setup();
-  vault.writeNote({ ...draft, sources: ["https://example.com/post"], sourceChannel: "telegram" });
+  vault.writeNote({ ...draft, body: "內文", sources: ["https://example.com/post"], sourceChannel: "telegram" });
 
   const out = await pipeline.processIncomingContent("https://example.com/post?utm_source=x", "telegram");
 
@@ -124,4 +130,38 @@ test("related links and MOC run after write", async () => {
   assert.equal(out.relatedResult.linkedCount, 1);
   assert.deepEqual(out.mocResult, { updated: true, mocPath: "AI/AI地圖.md" });
   assert.match(vault.readNote(out.result.relativePath).body, /## 相關筆記/);
+});
+
+test("note type: plain text is note, fetched url is article, research is research", async () => {
+  const url = "https://example.com/post";
+  const { vault, pipeline } = setup({
+    fetched: { [url]: { url, ok: true, title: "T", text: "x", byline: "", excerpt: "" } },
+    report: { notebookId: "nb1", reportText: "r", effectiveTopic: "t" },
+  });
+  const type = (out) => vault.readNote(out.result.relativePath).frontmatter.type;
+
+  assert.equal(type(await pipeline.processIncomingContent("想法", "telegram")), "note");
+  assert.equal(type(await pipeline.processIncomingContent(url, "telegram")), "article");
+  assert.equal(type(await pipeline.processNotebookResearch("主題", "telegram-notebook")), "research");
+});
+
+test("source metadata from the fetcher wins over what the AI guessed", async () => {
+  const url = "https://example.com/post";
+  const { vault, pipeline } = setup({
+    fetched: {
+      [url]: { url, ok: true, title: "原文標題", text: "x", byline: "真正作者", excerpt: "", published: "2026-03-04" },
+    },
+  });
+  const fm = vault.readNote((await pipeline.processIncomingContent(url, "telegram")).result.relativePath).frontmatter;
+  assert.equal(fm.author, "真正作者");
+  assert.equal(fm.published, "2026-03-04");
+  assert.equal(fm.original_title, "原文標題");
+});
+
+test("note body follows the template and frontmatter has reading_time", async () => {
+  const { vault, pipeline } = setup();
+  const note = vault.readNote((await pipeline.processIncomingContent("記一下", "telegram")).result.relativePath);
+  assert.match(note.body, /TL;DR[\s\S]*## 重點[\s\S]*## 詳細內容[\s\S]*## 回顧問題/);
+  assert.equal(note.frontmatter.kind, "片段");
+  assert.match(note.frontmatter.reading_time, /分鐘$/);
 });

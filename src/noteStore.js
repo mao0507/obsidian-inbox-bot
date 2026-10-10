@@ -7,23 +7,37 @@ import path from "node:path";
 //
 // 這支不 import config.js：root 由呼叫端傳入（正式環境見 app.js），測試直接傳暫存資料夾。
 //
-// Note = { path, title, summary, tags, sources, body }
+// Note = { path, title, summary, tags, sources, frontmatter, body }
 //   path：相對 vault 根目錄、一律用 "/" 分隔（Windows 也一樣）
 //   sources：frontmatter 的 source + other_sources 合併成一個陣列
+//   frontmatter：所有 frontmatter 欄位（type、kind、author、published、reading_time...）
 
 // 以 "." 開頭的資料夾（.obsidian、.trash、.git）跟 node_modules 都不是使用者的筆記。
 function isIgnoredDir(name) {
   return name.startsWith(".") || name === "node_modules";
 }
 
-function sanitizeFilename(name) {
+const MAX_FILENAME_LENGTH = 60;
+
+// 檔名 = 標題：人類讀得懂、專有名詞保留原本大小寫、允許空白。
+// 拿掉檔案系統不允許的字元，以及會讓 Obsidian [[wikilink]] 失效的 # ^ [ ] |。
+function titleToFilename(title) {
   return (
-    name
-      .replace(/[\\/:*?"<>|]/g, "-")
+    String(title || "")
+      .replace(/[\\/:*?"<>|#^[\]]/g, " ")
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, 120) || "未命名筆記"
+      .slice(0, MAX_FILENAME_LENGTH)
+      .trim() || "未命名筆記"
   );
+}
+
+// ponytail: 一律用中文閱讀速度估算（約每分鐘 400 字），英文長文會略微高估。
+const READING_CHARS_PER_MINUTE = 400;
+
+function readingTime(body) {
+  const chars = String(body || "").replace(/\s+/g, "").length;
+  return `${Math.max(1, Math.ceil(chars / READING_CHARS_PER_MINUTE))} 分鐘`;
 }
 
 function todayISO() {
@@ -57,9 +71,17 @@ function sanitizeTag(tag) {
   return String(tag).replace(/^#/, "").trim().replace(/\s+/g, "");
 }
 
-function serializeFrontmatter({ title, tags, summary, sources, sourceChannel, reasoning }) {
+// 欄位順序：識別（title/type/kind）→ 來源 → 原文資訊 → 收錄資訊 → 內容摘要。
+// 選填欄位沒值就整行不寫，不留空欄位。
+function serializeFrontmatter(note) {
+  const { title, tags, summary, sources, sourceChannel, reasoning, body } = note;
   const lines = ["---"];
+  const optional = (key) => {
+    if (note[key]) lines.push(`${key}: ${yamlEscape(String(note[key]))}`);
+  };
   lines.push(`title: ${yamlEscape(title)}`);
+  optional("type");
+  optional("kind");
   if (sources?.length) {
     lines.push(`source: ${yamlEscape(sources[0])}`);
     if (sources.length > 1) {
@@ -67,8 +89,12 @@ function serializeFrontmatter({ title, tags, summary, sources, sourceChannel, re
       for (const s of sources.slice(1)) lines.push(`  - ${yamlEscape(s)}`);
     }
   }
+  optional("original_title");
+  optional("author");
+  optional("published");
   lines.push(`date_added: ${todayISO()}`);
   lines.push(`via: ${sourceChannel}`);
+  lines.push(`reading_time: ${readingTime(body)}`);
   lines.push(`summary: ${yamlEscape(summary || "")}`);
   lines.push("tags:");
   for (const t of tags || []) {
@@ -117,7 +143,7 @@ function asList(value) {
 function parseNote(relPath, raw) {
   const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
   if (!match) {
-    return { path: relPath, title: "", summary: "", tags: [], sources: [], body: raw.trim() };
+    return { path: relPath, title: "", summary: "", tags: [], sources: [], frontmatter: {}, body: raw.trim() };
   }
   const fm = parseFrontmatter(match[1]);
   return {
@@ -126,6 +152,7 @@ function parseNote(relPath, raw) {
     summary: typeof fm.summary === "string" ? fm.summary : "",
     tags: asList(fm.tags).filter(Boolean),
     sources: [...asList(fm.source), ...asList(fm.other_sources)].filter(Boolean),
+    frontmatter: fm,
     body: (match[2] || "").trim(),
   };
 }
@@ -183,11 +210,12 @@ export function createNoteStore(root) {
     /**
      * 把 draft 寫成 .md 到 vault 對應資料夾。檔名重複時自動加流水號，絕不覆蓋既有筆記。
      */
-    writeNote({ folder, filename, title, tags, summary, body, reasoning, sources, sourceChannel }) {
+    writeNote(note) {
+      const { folder, title, body } = note;
       const dirAbs = abs(folder);
       fs.mkdirSync(dirAbs, { recursive: true });
 
-      const base = sanitizeFilename(filename || title || "未命名筆記");
+      const base = titleToFilename(title);
       let finalName = `${base}.md`;
       let counter = 2;
       while (fs.existsSync(path.join(dirAbs, finalName))) {
@@ -195,7 +223,7 @@ export function createNoteStore(root) {
         counter += 1;
       }
 
-      const frontmatter = serializeFrontmatter({ title, tags, summary, sources, sourceChannel, reasoning });
+      const frontmatter = serializeFrontmatter(note);
       const fullPath = path.join(dirAbs, finalName);
       fs.writeFileSync(fullPath, `${frontmatter}\n\n# ${title}\n\n${body.trim()}\n`, "utf8");
 

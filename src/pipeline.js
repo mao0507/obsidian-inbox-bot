@@ -63,10 +63,22 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     return { gitResult, relatedResult, mocResult };
   }
 
-  async function draftAndSave({ rawText, fetched, sources, sourceChannel }) {
+  // type 由流程決定，不交給 AI 判斷；原文標題/作者/日期優先用 fetcher 從網頁 metadata 拿到的，
+  // 拿不到才用 AI 從內文找到的（AI 被要求看不出來就留空，不要猜）。
+  async function draftAndSave({ rawText, fetched, sources, sourceChannel, type }) {
     const draft = await drafter.draftNote({ rawText, fetched, sourceChannel });
-    const result = vault.writeNote({ ...draft, sources, sourceChannel });
-    return { draft, result, ...(await finalizeWrittenNote(draft, result)) };
+    const source = fetched.find((f) => f.ok) || {};
+    const note = {
+      ...draft,
+      type,
+      original_title: source.title || draft.original_title,
+      author: source.byline || draft.author,
+      published: source.published || draft.published,
+      sources,
+      sourceChannel,
+    };
+    const result = vault.writeNote(note);
+    return { draft: note, result, ...(await finalizeWrittenNote(note, result)) };
   }
 
   return {
@@ -88,7 +100,8 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         fetched.push(await fetcher.fetch(url));
       }
 
-      return draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel });
+      const type = urls.length ? "article" : "note";
+      return draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel, type });
     },
 
     /**
@@ -112,7 +125,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         `以下是用 NotebookLM 針對這個主題做研究後產生的報告（NotebookLM notebook id: ${notebookId}，內容已含引用來源）：\n\n` +
         reportText;
 
-      const saved = await draftAndSave({ rawText, fetched: [], sources: [], sourceChannel });
+      const saved = await draftAndSave({ rawText, fetched: [], sources: [], sourceChannel, type: "research" });
       return { notebookId, ...saved };
     },
   };

@@ -8,14 +8,26 @@ import { runCli, tryExtractJsonObject } from "./cliRunner.js";
 // 這支不 import config.js，測試可以塞假的 run / client 進來。
 
 // 從 tool.input_schema 產生給 CLI 看的 JSON 格式說明，跟 API 的 tool 定義共用同一份欄位描述。
+function describeType(prop) {
+  if (prop.type === "array") return `${describeType(prop.items || {})}[]`;
+  if (prop.type === "object") {
+    const fields = Object.entries(prop.properties || {}).map(([key, p]) => `"${key}": ${describeType(p)}`);
+    return `{ ${fields.join(", ")} }`;
+  }
+  if (prop.enum) return prop.enum.map((v) => JSON.stringify(v)).join(" | ");
+  return prop.type || "any";
+}
+
 function describeSchema(tool) {
-  const { properties } = tool.input_schema;
-  const fields = Object.entries(properties).map(([key, prop]) => {
-    const type = prop.type === "array" ? `${prop.items?.type || "any"}[]` : prop.type;
-    return `  "${key}": ${type}，${prop.description || ""}`;
-  });
+  const fields = Object.entries(tool.input_schema.properties).map(
+    ([key, prop]) => `  "${key}": ${describeType(prop)}，${prop.description || ""}`
+  );
   return `{\n${fields.join(",\n")}\n}`;
 }
+
+// 精讀筆記要求完整保留原文細節，長文整理出來可能上萬字：輸出上限與 CLI 逾時都要放寬。
+const JSON_MAX_TOKENS = 16_000;
+const CLI_JSON_TIMEOUT_MS = 5 * 60 * 1000;
 
 // 大部分 agent CLI（claude、cursor-agent 等）的用法都是「內容用 stdin 管進去，指令用一個簡短的位置參數帶著」，
 // 例如 `git diff | agent -p "summarize this"`。完整 prompt 塞進參數在某些系統上會超過命令列長度限制。
@@ -61,7 +73,7 @@ ${user}
 ${describeSchema(tool)}
 - 不要呼叫任何工具、不要讀寫檔案，直接把結果 JSON 印出來就好。`;
 
-      const raw = await run(command, [...args, CLI_JSON_INSTRUCTION], prompt);
+      const raw = await run(command, [...args, CLI_JSON_INSTRUCTION], prompt, { timeoutMs: CLI_JSON_TIMEOUT_MS });
       const keys = tool.input_schema.required || [];
       const looksRight = (obj) => !!obj && typeof obj === "object" && keys.some((k) => k in obj);
       const payload = extractTarget(raw, looksRight);
@@ -94,7 +106,7 @@ export function createApiBackend({ apiKey, model, client = null }) {
     async askJson({ system, user, tool }) {
       const response = await getClient().messages.create({
         model,
-        max_tokens: 4096,
+        max_tokens: JSON_MAX_TOKENS,
         system,
         messages: [{ role: "user", content: user }],
         tools: [tool],
