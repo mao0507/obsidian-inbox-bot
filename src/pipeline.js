@@ -5,7 +5,9 @@ import { syncRelatedNotes } from "./relatedNotes.js";
 import { syncMocForFolder } from "./mocSync.js";
 import { createNoteDrafter } from "./noteDrafter.js";
 import { buildSystemPrompt, buildUserPrompt } from "./promptBuilder.js";
-import { getDynamicFolderExamples } from "./vaultScan.js";
+import { describeExistingFolders } from "./vaultScan.js";
+import { TAXONOMY, INBOX_FALLBACK, buildFolder } from "./taxonomy.js";
+import { createTagVocabulary } from "./tagVocabulary.js";
 
 const MAX_URLS_PER_MESSAGE = 3;
 
@@ -21,18 +23,10 @@ const MAX_URLS_PER_MESSAGE = 3;
  * @param {{ commitAndPush: (message: string) => Promise<object> }} deps.git
  */
 export function createPipeline({ vault, ai, fetcher, notebook, git }) {
-  const drafter = createNoteDrafter({
-    backend: ai,
-    buildPrompts: (input) => ({
-      system: buildSystemPrompt(input.sourceChannel, getDynamicFolderExamples(vault)),
-      user: buildUserPrompt(input),
-    }),
-  });
-
   /**
    * 筆記寫進 vault 之後的共用收尾步驟：
-   * -> 跟同資料夾（動態分類）或同標籤（扁平分類）的既有筆記互相補上雙向 [[wikilink]]
-   * -> 動態分類（AI、學習、旅遊）額外重新產生一份 <分類>地圖.md 索引
+   * -> 跟相關的既有筆記互相補上雙向 [[wikilink]]
+   * -> 重新產生該大項目的 <大項目>地圖.md 索引
    * -> vault 筆記同步到 git（放最後，前兩步異動的檔案會一起被這次 commit 帶上去）
    * 任何一步失敗都不影響筆記本身已經寫入這件事，錯誤只印在終端機、回傳的狀態物件會反映失敗。
    */
@@ -66,12 +60,48 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
   // type 由流程決定，不交給 AI 判斷；原文標題/作者/日期優先用 fetcher 從網頁 metadata 拿到的，
   // 拿不到才用 AI 從內文找到的（AI 被要求看不出來就留空，不要猜）。
   // fetcher 的降級說明（例如影片沒有字幕）放在筆記最上方，回顧時一眼看得出這篇資訊不完整。
+  // 分類：tag 一律經過詞彙表正規化（同一個東西不同寫法 → 同一個資料夾），資料夾由分類樹組出；
+  // 大/中項目不在分類樹裡就退回收件匣。收件匣不分 tag 資料夾，也不為它建立主 tag。
+  function classify(draft, vocab) {
+    const needsTagFolder = !TAXONOMY[draft.category]?.noTagLevel;
+    const primary = needsTagFolder ? vocab.resolve([draft.primary_tag]) : { tags: [], created: [] };
+    const others = vocab.resolve(draft.tags);
+    const primaryTag = primary.tags[0] || "";
+    let folder = buildFolder({ category: draft.category, subcategory: draft.subcategory, primaryTag });
+    if (!folder) {
+      console.warn(`[classifier] AI 的分類「${draft.category}/${draft.subcategory}/${draft.primary_tag}」不在分類樹裡，改放進 ${INBOX_FALLBACK}`);
+      folder = INBOX_FALLBACK;
+    }
+    return {
+      folder,
+      primaryTag,
+      tags: [...new Set([primaryTag, ...others.tags].filter(Boolean))],
+      createdTags: [...primary.created, ...others.created],
+    };
+  }
+
   async function draftAndSave({ rawText, fetched, sources, sourceChannel, type }) {
+    // 每篇重新讀一次詞彙表與既有資料夾：使用者可能手動改過 tags.json 或搬過筆記。
+    const vocab = createTagVocabulary(vault);
+    const drafter = createNoteDrafter({
+      backend: ai,
+      buildPrompts: (input) => ({
+        system: buildSystemPrompt(input.sourceChannel, {
+          existingFolders: describeExistingFolders(vault),
+          tags: vocab.list(),
+        }),
+        user: buildUserPrompt(input),
+      }),
+    });
     const draft = await drafter.draftNote({ rawText, fetched, sourceChannel });
+    const { folder, primaryTag, tags, createdTags } = classify(draft, vocab);
     const source = fetched.find((f) => f.ok) || {};
     const warnings = fetched.map((f) => f.warning).filter(Boolean);
     const note = {
       ...draft,
+      folder,
+      primary_tag: primaryTag,
+      tags,
       type,
       original_title: source.title || draft.original_title,
       author: source.byline || draft.author,
@@ -83,7 +113,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       sourceChannel,
     };
     const result = vault.writeNote(note);
-    return { draft: note, result, warnings, ...(await finalizeWrittenNote(note, result)) };
+    return { draft: note, result, warnings, createdTags, ...(await finalizeWrittenNote(note, result)) };
   }
 
   return {

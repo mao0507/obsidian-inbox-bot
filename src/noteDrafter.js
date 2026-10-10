@@ -1,11 +1,10 @@
-import { VALID_FOLDERS, isValidFolder } from "./taxonomy.js";
+import { TAXONOMY } from "./taxonomy.js";
 
 // Note Drafting module：把使用者丟進來的內容（+ 抓到的網頁）交給 AI，拿回一份「已驗證」的 Draft。
-// AI 回傳的是結構化欄位（TL;DR、重點、完整內容、回顧問題...），正文由這裡照「精讀模板」排版，
-// 所以每一段一定存在、順序固定，不靠 AI 自己記得格式。
-// 欄位必填檢查、不合法資料夾退回 收件匣/待整理，都在這裡做一次，不管背後是 CLI 還是 API backend。
+// AI 回傳的是結構化欄位（分類、TL;DR、重點、完整內容、回顧問題...），正文由這裡照「精讀模板」排版，
+// 所以每一段一定存在、順序固定，不靠 AI 自己記得格式。欄位必填檢查在這裡做一次，不管背後是 CLI 還是 API backend。
+// 分類只回傳「大項目 / 中項目 / 主 tag」，資料夾路徑由 pipeline 依分類樹與 tag 詞彙表組出（見 taxonomy.js）。
 
-const FALLBACK_FOLDER = "收件匣/待整理";
 export const NOTE_KINDS = ["觀念", "片段", "踩雷", "其他"];
 
 const stringArray = (description) => ({ type: "array", items: { type: "string" }, description });
@@ -17,21 +16,25 @@ export const FILE_NOTE_TOOL = {
   input_schema: {
     type: "object",
     properties: {
-      folder: {
+      category: {
+        type: "string",
+        enum: Object.keys(TAXONOMY),
+        description: "大項目，只能從 system prompt 的分類樹挑",
+      },
+      subcategory: {
+        type: "string",
+        description: "中項目，只能從該大項目的清單挑（旅遊填國家、專案填專案名）",
+      },
+      primary_tag: {
         type: "string",
         description:
-          `這篇筆記要放進哪個資料夾。多數情況必須是下面清單中已存在的固定路徑之一：${VALID_FOLDERS.join("、")}。` +
-          `另外還有三個動態分類，folder 要依內容組出對應層級：` +
-          `"AI/<工具名稱，AI自訂>/<提示詞庫|教學文章|新聞動態|工具比較>"、` +
-          `"學習/<書籍|課程|文章整理>/<主題或書名，AI自訂>"、` +
-          `"旅遊/<國家，AI自訂>/<城市或地區，AI自訂>"。` +
-          `AI 自訂的那一層請參考 system prompt 裡「動態分類目前已有名稱」優先重複使用既有名稱，不要創造新的相似變體。`,
+          "主 tag（第三層資料夾）：這篇最主要在講的具體技術/工具/書名/地區。優先用既有資料夾與 tag 詞彙表裡的寫法，不能有空白。收件匣填空字串",
       },
       title: {
         type: "string",
         description: "筆記標題，同時也是檔名：繁體中文為主，專有名詞保留原文大小寫（例如「Vue3 Router 路由管理」），60 字以內",
       },
-      tags: stringArray("3~6 個主題標籤，不含 # 符號、不能有空白（例如要寫 \"ClaudeCode\" 不要寫 \"Claude Code\"）"),
+      tags: stringArray("2~5 個其他相關標籤（不含 primary_tag），優先用 tag 詞彙表裡的寫法；不含 # 符號、不能有空白"),
       summary: { type: "string", description: "一句話摘要，放進 frontmatter，用於列表與搜尋" },
       kind: {
         type: "string",
@@ -61,9 +64,9 @@ export const FILE_NOTE_TOOL = {
         },
       },
       quotes: stringArray("原文關鍵摘錄：1~5 段最重要的原文句子，逐字引用不改寫，方便日後查證（沒有原文就給空陣列）"),
-      reasoning: { type: "string", description: "簡短說明為什麼分到這個資料夾" },
+      reasoning: { type: "string", description: "簡短說明為什麼這樣分類" },
     },
-    required: ["folder", "title", "tags", "summary", "kind", "tldr", "key_points", "content", "review_questions"],
+    required: ["category", "subcategory", "primary_tag", "title", "tags", "summary", "kind", "tldr", "key_points", "content", "review_questions"],
   },
 };
 
@@ -120,14 +123,9 @@ export function createNoteDrafter({ backend, buildPrompts }) {
         );
       }
 
-      let folder = payload.folder;
-      if (!isValidFolder(folder)) {
-        console.warn(`[classifier] AI 選了不合法的資料夾「${folder}」，改放進 ${FALLBACK_FOLDER}`);
-        folder = FALLBACK_FOLDER;
-      }
       const kind = NOTE_KINDS.includes(payload.kind) ? payload.kind : "";
 
-      return { ...payload, folder, kind, body: renderNoteBody(payload) };
+      return { ...payload, kind, body: renderNoteBody(payload) };
     },
   };
 }

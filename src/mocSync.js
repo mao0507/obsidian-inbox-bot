@@ -1,4 +1,4 @@
-import { DYNAMIC_TAXONOMY } from "./taxonomy.js";
+import { TAXONOMY } from "./taxonomy.js";
 
 // 之前分類地圖（<類別>地圖.md）完全要手動維護——動態分類（AI / 學習 / 旅遊）
 // 底下寫進新筆記之後，沒有任何機制自動反映到索引檔案裡。
@@ -36,7 +36,7 @@ function groupNotesByFolder(vault, top, mocFilename) {
  * 不會生出一份空地圖。
  */
 export function regenerateMoc(vault, top) {
-  if (!DYNAMIC_TAXONOMY[top]) return { updated: false };
+  if (!TAXONOMY[top] || TAXONOMY[top].noTagLevel) return { updated: false }; // 收件匣不需要地圖
 
   const mocFilename = `${top}地圖.md`;
   const groups = groupNotesByFolder(vault, top, mocFilename);

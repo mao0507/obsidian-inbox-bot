@@ -1,24 +1,12 @@
-import { FLAT_CATEGORIES, DYNAMIC_TAXONOMY } from "./taxonomy.js";
+import { TAXONOMY } from "./taxonomy.js";
 
-// 之前完全沒有自動建立筆記間的關聯，筆記分類完就各自獨立，
-// 使用者要另外手動幫全部筆記補雙向 [[wikilink]]。這支模組在每次寫入新筆記之後執行，
-// 自動幫新筆記跟判斷為相關的既有筆記互相補上「## 相關筆記」區塊裡的連結。
-//
-// 「相關」的判斷方式依分類種類而不同：
-// - 動態分類（AI / 學習 / 旅遊）：folder 本身最後一層就是 AI 依內容判斷出來的具體主題
-//   （例如 "AI/ClaudeCode/教學文章"、"旅遊/日本/北海道"），同一個最深層資料夾裡的筆記
-//   幾乎一定是同主題，直接互相連結。
-// - 扁平分類（知識庫 / 程式片段 / 踩雷筆記）：資料夾本身不分主題（技術分類全部靠 tags），
-//   改成「至少共用一個 tag」的筆記才視為相關，避免把同資料夾裡完全不相關的技術筆記
-//   （例如 Vue 筆記和 Docker 筆記）也連在一起。
-// - 其他分類（收件匣 / 專案 / Assets）：不自動連結，這些多半是零散項目，關聯意義不大。
+// 每次寫入新筆記之後執行，自動幫新筆記跟判斷為相關的既有筆記互相補上「## 相關筆記」區塊裡的連結。
+// 相關：同一個「大項目/中項目/主tag」資料夾裡的筆記一律視為同主題，直接互相連結。
+// 收件匣（沒有 tag 層）不自動連結，那裡多半是零散項目。
 
-function isDynamicFolder(folder) {
-  return Object.keys(DYNAMIC_TAXONOMY).some((top) => folder === top || folder.startsWith(`${top}/`));
-}
-
-function isFlatFolder(folder) {
-  return FLAT_CATEGORIES.includes(folder);
+function isTagFolder(folder) {
+  const parts = folder.split("/");
+  return parts.length === 3 && Boolean(TAXONOMY[parts[0]]);
 }
 
 // 純粹「加上一條連結」，不會動到區塊裡既有的其他連結（包含使用者自己手動加的）。
@@ -50,19 +38,15 @@ function addRelatedLink(content, targetBasename) {
  * 回傳 { linkedCount }：這次總共連結的既有筆記數，給呼叫端顯示狀態用。
  */
 export function syncRelatedNotes(vault, { folder, filename, tags }) {
-  const dynamic = isDynamicFolder(folder);
-  const flat = isFlatFolder(folder);
-  if (!dynamic && !flat) return { linkedCount: 0 };
+  if (!isTagFolder(folder)) return { linkedCount: 0 };
 
   const newPath = `${folder}/${filename}`;
-  const newTagsSet = new Set((tags || []).map((t) => String(t).trim()).filter(Boolean));
   const basename = (relPath) => relPath.slice(relPath.lastIndexOf("/") + 1).replace(/\.md$/, "");
 
   // 只看「直接放在同一個資料夾」的筆記，不往子資料夾找。
   const siblings = vault
     .listNotes(folder)
-    .filter((note) => note.path !== newPath && note.path === `${folder}/${basename(note.path)}.md`)
-    .filter((note) => dynamic || note.tags.some((t) => newTagsSet.has(t))); // 動態分類：同資料夾一律視為相關
+    .filter((note) => note.path !== newPath && note.path === `${folder}/${basename(note.path)}.md`);
 
   if (siblings.length === 0) return { linkedCount: 0 };
 

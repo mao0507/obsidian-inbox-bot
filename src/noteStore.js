@@ -241,6 +241,16 @@ export function createNoteStore(root) {
       return true;
     },
 
+    /** 讀取任意檔案（例如 _系統/tags.json），不存在回傳 null。 */
+    readFile(relPath) {
+      try {
+        return fs.readFileSync(abs(relPath), "utf8");
+      } catch (err) {
+        if (err.code === "ENOENT") return null;
+        throw err;
+      }
+    },
+
     /** 直接整份寫入（例如自動產生的分類地圖），會覆蓋既有檔案。 */
     writeFile(relPath, content) {
       fs.mkdirSync(path.dirname(abs(relPath)), { recursive: true });

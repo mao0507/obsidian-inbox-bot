@@ -7,9 +7,11 @@ import { createNoteStore } from "../src/noteStore.js";
 import { createPipeline } from "../src/pipeline.js";
 
 const draft = {
-  folder: "知識庫",
+  category: "技術",
+  subcategory: "DevOps與部署",
+  primary_tag: "Docker",
   title: "Docker 健康檢查",
-  tags: ["Docker"],
+  tags: ["Compose"],
   summary: "healthcheck 寫法",
   kind: "片段",
   tldr: "用 healthcheck 讓 compose 知道服務活著",
@@ -22,8 +24,11 @@ const draft = {
 };
 
 // 假依賴：每個 test 拿一組新的，calls 記錄被呼叫的情形。
-function setup({ aiDraft = draft, fetched = {}, gitResult = { attempted: false }, report } = {}) {
-  const vault = createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-")));
+function setup(options = {}) {
+  return setupWith(createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-"))), options);
+}
+
+function setupWith(vault, { aiDraft = draft, fetched = {}, gitResult = { attempted: false }, report } = {}) {
   const calls = { askJson: [], fetch: [], git: [], research: [] };
   const ai = {
     name: "fake",
@@ -60,10 +65,10 @@ test("plain text: drafts, writes to vault, then commits", async () => {
 
   const out = await pipeline.processIncomingContent("記一下 docker healthcheck", "telegram");
 
-  assert.equal(out.result.relativePath, "知識庫/Docker 健康檢查.md");
+  assert.equal(out.result.relativePath, "技術/DevOps與部署/Docker/Docker 健康檢查.md");
   assert.equal(vault.readNote(out.result.relativePath).title, "Docker 健康檢查");
   assert.equal(calls.fetch.length, 0);
-  assert.deepEqual(calls.git, ["新增筆記：Docker 健康檢查（知識庫）"]);
+  assert.deepEqual(calls.git, ["新增筆記：Docker 健康檢查（技術/DevOps與部署/Docker）"]);
 });
 
 test("url: fetched content reaches the AI prompt and source lands in frontmatter", async () => {
@@ -81,17 +86,17 @@ test("url: fetched content reaches the AI prompt and source lands in frontmatter
 
 test("url already in vault: reports duplicate without calling AI", async () => {
   const { vault, calls, pipeline } = setup();
-  vault.writeNote({ ...draft, body: "內文", sources: ["https://example.com/post"], sourceChannel: "telegram" });
+  vault.writeNote({ ...draft, folder: "技術/DevOps與部署/Docker", body: "內文", sources: ["https://example.com/post"], sourceChannel: "telegram" });
 
   const out = await pipeline.processIncomingContent("https://example.com/post?utm_source=x", "telegram");
 
   assert.equal(out.duplicate, true);
-  assert.equal(out.duplicatePath, "知識庫/Docker 健康檢查.md");
+  assert.equal(out.duplicatePath, "技術/DevOps與部署/Docker/Docker 健康檢查.md");
   assert.equal(calls.askJson.length, 0);
 });
 
-test("invalid folder from AI falls back to inbox", async () => {
-  const { pipeline } = setup({ aiDraft: { ...draft, folder: "亂寫" } });
+test("category outside the taxonomy falls back to inbox", async () => {
+  const { pipeline } = setup({ aiDraft: { ...draft, category: "知識庫" } });
   const out = await pipeline.processIncomingContent("隨便", "telegram");
   assert.equal(out.draft.folder, "收件匣/待整理");
 });
@@ -123,12 +128,12 @@ test("notebook research: report drives the draft and note is saved", async () =>
 });
 
 test("related links and MOC run after write", async () => {
-  const { vault, pipeline } = setup({ aiDraft: { ...draft, folder: "AI/ClaudeCode/教學文章" } });
+  const { vault, pipeline } = setup();
   await pipeline.processIncomingContent("a", "telegram");
   const out = await pipeline.processIncomingContent("b", "telegram");
 
   assert.equal(out.relatedResult.linkedCount, 1);
-  assert.deepEqual(out.mocResult, { updated: true, mocPath: "AI/AI地圖.md" });
+  assert.deepEqual(out.mocResult, { updated: true, mocPath: "技術/技術地圖.md" });
   assert.match(vault.readNote(out.result.relativePath).body, /## 相關筆記/);
 });
 
@@ -210,4 +215,32 @@ test("fetcher warnings (e.g. no subtitles) are shown at the top of the note and 
 
   assert.deepEqual(out.warnings, [warning]);
   assert.ok(vault.readNote(out.result.relativePath).body.startsWith(`# Docker 健康檢查\n\n> [!warning] ${warning}`));
+});
+
+test("tag spelling variants land in the same folder and frontmatter tags are canonical", async () => {
+  const { vault, pipeline } = setup({
+    aiDraft: { ...draft, category: "AI", subcategory: "編程助手", primary_tag: "ClaudeCode", tags: ["MCP"] },
+  });
+  await pipeline.processIncomingContent("a", "telegram");
+
+  const variant = { ...draft, category: "AI", subcategory: "編程助手", primary_tag: "Claude Code", tags: ["mcp", "claude-code"] };
+  const { pipeline: second } = setupWith(vault, { aiDraft: variant });
+  const out = await second.processIncomingContent("b", "telegram");
+
+  assert.equal(out.draft.folder, "AI/編程助手/ClaudeCode");
+  assert.deepEqual(vault.readNote(out.result.relativePath).tags, ["ClaudeCode", "MCP"]);
+  assert.deepEqual(out.createdTags, []);
+});
+
+test("brand-new tags are created and reported", async () => {
+  const { pipeline } = setup({ aiDraft: { ...draft, primary_tag: "Podman", tags: ["Rootless"] } });
+  const out = await pipeline.processIncomingContent("a", "telegram");
+  assert.equal(out.draft.folder, "技術/DevOps與部署/Podman");
+  assert.deepEqual(out.createdTags, ["Podman", "Rootless"]);
+});
+
+test("inbox notes have no tag folder", async () => {
+  const { pipeline } = setup({ aiDraft: { ...draft, category: "收件匣", subcategory: "靈感", primary_tag: "" } });
+  const out = await pipeline.processIncomingContent("突然想到", "telegram");
+  assert.equal(out.draft.folder, "收件匣/靈感");
 });

@@ -1,146 +1,92 @@
-// 這裡定義你的 Obsidian vault 分類架構。
-// 之後想加新分類，直接照格式加進對應陣列即可，不用改其他程式碼，
-// classify.js 會自動把最新的樹狀結構送給 AI。
+// Obsidian vault 的分類樹：資料夾固定三層「大項目/中項目/主tag」。
+// - 大項目、中項目是固定清單（這裡維護），AI 只能從清單挑，不能自己發明 → 不會再出現同一主題被拆成兩個資料夾。
+// - 第三層是這篇筆記的「主 tag」（從 vault 的 tag 詞彙表挑，見 tagVocabulary.js），其他 tag 只放 frontmatter。
+// - 旅遊的中項目是國家、專案的中項目是專案名，這兩個不設固定清單（openSubcategory）。
+// - 收件匣只有兩層（收件匣/中項目），不分 tag。
+// - 「觀念 / 片段 / 踩雷」是內容型態，不是分類：放在 frontmatter 的 kind。
+// 想加新的中項目，直接加進對應陣列即可，prompt 會自動帶到最新的樹。
 
-// FLAT_CATEGORIES：這幾個資料夾不建技術子資料夾，筆記直接放進資料夾本身，
-// 技術分類完全靠 tags 處理（例如一篇筆記可以同時貼 #Vue #TypeScript）。
-// 這是為了解決「內容橫跨兩個技術時，樹狀子資料夾逼你只能二選一」的問題。
-//
-// 資料夾命名一律「拿掉數字前綴、用中文命名」（跟 vault 裡手動整理過的
-// 知識庫/AI/旅遊 保持一致），避免程式跟 AI 分類完的資料夾又生出一套跟
-// vault 實際結構對不上的新命名，把整理好的結構重新拆成兩套並存。
-export const FLAT_CATEGORIES = ["知識庫", "程式片段", "踩雷筆記"];
-
-// NESTED_TAXONOMY：這幾個分類彼此互斥、子資料夾是固定清單（一篇筆記通常明確
-// 屬於某一個子分類），不會有跨分類的問題，也不需要 AI 自己發明資料夾名稱。
-export const NESTED_TAXONOMY = {
-  "收件匣": ["暫時紀錄", "靈感", "待整理"],
-  "專案": ["Lunch-System", "公司專案A", "Side Project"],
-  "Assets": ["Images", "PDF"],
+export const TAXONOMY = {
+  技術: {
+    subcategories: [
+      "前端框架",
+      "語言基礎",
+      "樣式與UI",
+      "建置與工具",
+      "跨平台與行動",
+      "後端與API",
+      "資料庫",
+      "網路與通訊",
+      "DevOps與部署",
+      "架構與設計模式",
+      "演算法與資料結構",
+    ],
+    hint: "程式與軟體開發技術。主 tag 是具體技術，例如 技術/前端框架/Vue、技術/建置與工具/Vite、技術/資料庫/PostgreSQL",
+  },
+  AI: {
+    subcategories: ["編程助手", "模型與聊天", "Agent與自動化", "提示詞工程", "設計與創作", "產業動態", "工具比較"],
+    hint:
+      "所有 AI 相關內容都放這裡，不要放進技術或學習。主 tag 是具體工具或主題，例如 AI/編程助手/ClaudeCode、AI/模型與聊天/Claude、" +
+      "AI/Agent與自動化/MCP。ClaudeCode（寫程式的 CLI 工具）跟 Claude（模型/聊天）是不同 tag",
+  },
+  學習: {
+    subcategories: ["書籍", "課程", "思維與方法", "職涯", "理財"],
+    hint: "非 AI 的書籍、課程、思維方法、職涯、理財。主 tag 是書名/課程名/主題，例如 學習/書籍/原子習慣、學習/思維與方法/拖延",
+  },
+  旅遊: {
+    openSubcategory: true,
+    hint: "中項目是國家（繁體中文，例如 日本、台灣），主 tag 是城市或地區，例如 旅遊/日本/北海道。美食、景點、住宿用一般 tag 表示",
+  },
+  生活: {
+    subcategories: ["健康運動", "料理飲食", "購物開箱", "居家", "娛樂"],
+    hint: "日常生活內容，例如 生活/料理飲食/咖啡",
+  },
+  專案: {
+    openSubcategory: true,
+    hint: "使用者自己的專案，中項目是專案名，主 tag 是模組或主題",
+  },
+  收件匣: {
+    subcategories: ["暫時紀錄", "靈感", "待整理"],
+    noTagLevel: true,
+    hint: "判斷不出分類、只有連結沒說明意圖 → 待整理；短的個人想法 → 靈感；使用者說先記一下、之後再看 → 暫時紀錄",
+  },
 };
 
-// 扁平 + 樹狀分類的所有合法固定路徑（動態分類不在這裡，見 isValidFolder）。
-export const VALID_FOLDERS = [
-  ...FLAT_CATEGORIES,
-  ...Object.entries(NESTED_TAXONOMY).flatMap(([top, subs]) => subs.map((s) => `${top}/${s}`)),
-];
+export const INBOX_FALLBACK = "收件匣/待整理";
 
-// DYNAMIC_TAXONOMY：至少有一層子資料夾不是固定清單，而是 AI 依內容動態決定。
-// 每個分類用 levels 陣列描述每一層：
-//   - type: "fixed"  → 這一層必須是 options 清單裡的其中一個值（跟 NESTED_TAXONOMY 一樣）
-//   - type: "free"   → 這一層由 AI 依內容自己決定名稱（例如國家、工具名稱、書籍主題）
-// depth（folder 的階層數）就是 levels.length，不用另外設定。
-export const DYNAMIC_TAXONOMY = {
-  // 旅遊筆記：國家、城市/地區都是 AI 自己判斷，兩層都沒有固定清單。
-  "旅遊": {
-    levels: [
-      { name: "國家", type: "free" },
-      { name: "城市或地區", type: "free" },
-    ],
-    hint: '依文章主要描述的地區判斷，用繁體中文，例如 "旅遊/台灣/台中"、"旅遊/日本/北海道"。地區不明確時不要用這個分類，改回 收件匣/待整理。',
-  },
-  // AI 相關筆記：先依「工具名稱」動態分資料夾（同一個工具的筆記會集中在一起），
-  // 底下再依「內容型態」分成固定的四種。
-  "AI": {
-    levels: [
-      { name: "工具名稱", type: "free" },
-      { name: "型態", type: "fixed", options: ["提示詞庫", "教學文章", "新聞動態", "工具比較"] },
-    ],
-    hint:
-      '第一層是工具/產品名稱，AI 自己判斷，用不含空白的簡潔名稱（例如 "ClaudeCode"、"Cursor"、"OpenAI"），' +
-      '同一個工具要一律用同樣的名稱，不要每次取不同的變體（例如已經有 "ClaudeCode" 就不要又建 "Claude Code" 或 "Claude AI"）。' +
-      '如果內容橫跨多個工具或講的是產業整體、沒有明確對應單一工具，工具名稱層填 "綜合"。' +
-      '第二層固定選 "提示詞庫"、"教學文章"、"新聞動態"、"工具比較" 其中一個。' +
-      '例如 "AI/ClaudeCode/教學文章"、"AI/綜合/新聞動態"。',
-  },
-  // 學習筆記：先依固定的「型態」分類，底下再依「主題或書籍名稱」動態分資料夾，
-  // 讓同一本書、同一個主題的筆記集中在一起。
-  "學習": {
-    levels: [
-      { name: "型態", type: "fixed", options: ["書籍", "課程", "文章整理"] },
-      { name: "主題或書籍名稱", type: "free" },
-    ],
-    hint:
-      '第一層固定選 "書籍"、"課程"、"文章整理" 其中一個。' +
-      '第二層是書名/課程名/主題，AI 自己判斷，用簡潔的繁體中文名稱，' +
-      '同一本書、同一個主題要一律用同樣的名稱，不要每次取不同的變體。' +
-      '例如 "學習/書籍/原子習慣"、"學習/文章整理/前端效能優化"。',
-  },
-};
+// 資料夾名稱不能含路徑分隔或檔案系統不允許的字元（也防止 AI 回傳 "a/b" 造成多一層資料夾）。
+const isSafeSegment = (name) => typeof name === "string" && name.trim() !== "" && !/[\\/:*?"<>|]/.test(name);
+
+/**
+ * 依分類組出資料夾路徑；大/中項目不在清單裡、或缺少主 tag 時回傳 null（呼叫端退回 INBOX_FALLBACK）。
+ * primaryTag 應該已經過 tag 詞彙表正規化。
+ */
+export function buildFolder({ category, subcategory, primaryTag }) {
+  const node = TAXONOMY[category];
+  if (!node || !isSafeSegment(subcategory)) return null;
+  if (!node.openSubcategory && !node.subcategories.includes(subcategory)) return null;
+  if (node.noTagLevel) return `${category}/${subcategory}`;
+  if (!isSafeSegment(primaryTag)) return null;
+  return `${category}/${subcategory}/${primaryTag}`;
+}
+
+/** 給 prompt 用的分類樹說明。 */
+export function renderTaxonomyTree() {
+  return Object.entries(TAXONOMY)
+    .map(([category, node]) => {
+      const subs = node.openSubcategory ? "（中項目自訂，見說明）" : `：${node.subcategories.join("、")}`;
+      return `- ${category}${subs}\n  說明：${node.hint}`;
+    })
+    .join("\n");
+}
 
 // 規則說明，會原封不動放進 system prompt 給 AI 判斷用
 export const RULES = `
 分類規則：
-- 明確對應到某個技術（Vue、Docker、SQL...）→ folder 選 知識庫 / 程式片段 / 踩雷筆記 本身（這三個是扁平資料夾，不分技術子資料夾）。技術分類改用 tags 標註，一篇筆記可以同時貼多個技術 tag（例如內容橫跨 Vue 和 TypeScript，兩個 tag 都貼上，不用勉強只選一個技術）
-  - 觀念、教學、原理類 → 知識庫
-  - 可直接複製貼上的程式碼片段 → 程式片段
-  - 踩雷記錄、錯誤訊息與解法 → 踩雷筆記
-- 專案相關內容 → 專案 對應子資料夾
-- AI 相關內容（不論哪個工具、哪種型態）→ 一律進 AI，不要進 學習。folder 依「工具名稱/內容型態」兩層組成（見下面 AI 的動態分類說明）：
-  - 提示詞、prompt 範例、prompt 庫 → .../提示詞庫
-  - AI 工具/技術的教學、操作說明、觀念文章 → .../教學文章
-  - AI 產業新聞、發布公告、更新動態 → .../新聞動態
-  - 多個 AI 工具的比較、選型評估 → .../工具比較
-- 非 AI 的書籍筆記、課程筆記、一般文章整理/心得 → 學習，folder 依「型態/主題或書籍名稱」兩層組成（見下面 學習 的動態分類說明）
-- 圖片、PDF 等純附件 → Assets
-- 旅遊相關內容（遊記、景點、行程規劃、美食、住宿心得等）→ 旅遊，這是動態分類，
-  folder 請自己組成 "旅遊/國家/城市或地區"（依文章主要描述的地區判斷，用繁體中文），
-  不要用清單裡沒列出的固定名稱去猜、也不要只填到 "旅遊" 這一層。
-  如果文章沒有明確的地區資訊，不要用這個分類，改回 收件匣/待整理。
-- 內容不完整、判斷不出明確分類、或使用者只丟了一個連結沒有說明意圖 → 收件匣/待整理
-- 使用者丟的是想法/靈感片段（沒有連結、很短、偏個人思考）→ 收件匣/靈感
-- 使用者明確說「先記一下」「之後再看」等 → 收件匣/暫時紀錄
-- 動態分類（AI、學習、旅遊）裡由 AI 自訂的那一層，務必參考 system prompt 裡列出的「動態分類目前已有名稱」，
-  如果內容對應到已經存在的名稱就直接重複使用，不要創造新的相似變體（例如已有 "ClaudeCode" 就不要又建 "Claude Code"）。
-- 除了動態分類的自訂層之外，folder 只能選擇下面清單中「已存在」的固定路徑，不要自己發明新資料夾名稱。
-  如果真的完全不合適，一律回退到 收件匣/待整理。
+- category（大項目）、subcategory（中項目）只能從上面的分類樹挑，不能自己發明；旅遊的中項目是國家、專案的中項目是專案名。
+- primary_tag 是第三層資料夾，代表這篇筆記「最主要在講的那個具體東西」（技術、工具、書名、地區…）。
+  務必優先使用「既有資料夾」與「tag 詞彙表」裡已經有的名稱，同一個東西不要換一種寫法（例如已有 ClaudeCode 就不要寫 Claude Code）。
+- tags 是其他相關標籤（不含 primary_tag），一樣優先使用詞彙表裡的名稱；tag 不能有空白。
+- 內容橫跨多個技術時，primary_tag 選最主要的那個，其他放 tags。
+- 收件匣不需要 primary_tag（填空字串）。內容不完整、判斷不出明確分類、或使用者只丟連結沒有說明意圖 → 收件匣/待整理。
 `;
-
-export function renderTaxonomyTree() {
-  const flatLines = FLAT_CATEGORIES.map(
-    (f) => `- ${f}（扁平資料夾，不分子資料夾，技術用 tags 表示，folder 直接填 "${f}"）`
-  );
-  const nestedLines = Object.entries(NESTED_TAXONOMY).map(
-    ([top, subs]) => `- ${top}\n${subs.map((s) => `  - ${top}/${s}`).join("\n")}`
-  );
-  const dynamicLines = Object.entries(DYNAMIC_TAXONOMY).map(([top, cfg]) => {
-    const levelDesc = cfg.levels
-      .map((lv) => (lv.type === "fixed" ? `${lv.name}（固定選：${lv.options.join("/")}）` : `${lv.name}（AI 自訂）`))
-      .join(" > ");
-    return `- ${top}（動態分類，共 ${cfg.levels.length} 層：${levelDesc}。${cfg.hint}）`;
-  });
-  return [...flatLines, ...nestedLines, ...dynamicLines].join("\n");
-}
-
-// 判斷 folder 是不是合法路徑：
-// - 扁平分類：完全等於清單中的資料夾本身
-// - 樹狀分類：完全等於 "頂層/子資料夾" 且子資料夾在清單裡
-// - 動態分類：以 "頂層/" 開頭，階層數要剛好等於 levels.length，
-//   每一層如果是 fixed 要在該層的 options 裡、如果是 free 只要求非空白
-export function isValidFolder(folder) {
-  if (typeof folder !== "string" || !folder.trim()) return false;
-
-  if (FLAT_CATEGORIES.includes(folder)) return true;
-
-  for (const [top, subs] of Object.entries(NESTED_TAXONOMY)) {
-    if (subs.some((s) => folder === `${top}/${s}`)) return true;
-  }
-
-  for (const [top, cfg] of Object.entries(DYNAMIC_TAXONOMY)) {
-    if (!folder.startsWith(`${top}/`)) continue;
-    const segments = folder
-      .slice(top.length + 1)
-      .split("/")
-      .filter((seg) => seg.trim().length > 0);
-    if (segments.length !== cfg.levels.length) continue;
-    const ok = cfg.levels.every((level, i) => {
-      const seg = segments[i];
-      if (!seg) return false;
-      if (level.type === "fixed") return level.options.includes(seg);
-      return seg.trim().length > 0;
-    });
-    if (ok) return true;
-  }
-
-  return false;
-}

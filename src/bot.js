@@ -14,7 +14,7 @@ function isAllowed(userId) {
 // 一般內容跟 /notebook 研究存檔完成後共用的回覆內容。extraLines 會插在標題下面（例如研究主題）。
 function formatSavedReply(
   header,
-  { draft, result, notebookId, relatedResult, mocResult, gitResult, fetchErrors = [], warnings = [] },
+  { draft, result, notebookId, relatedResult, mocResult, gitResult, fetchErrors = [], warnings = [], createdTags = [] },
   extraLines = []
 ) {
   const gitLine = !gitResult?.attempted || gitResult.skipped // 沒設定 VAULT_GIT_REMOTE、或沒有新異動可 commit
@@ -33,6 +33,7 @@ function formatSavedReply(
     `檔名：${result.relativePath}`,
     draft.summary ? `摘要：${draft.summary}` : null,
     draft.tags?.length ? draft.tags.map((t) => `#${t}`).join(" ") : null,
+    createdTags.length ? `🆕 新 tag：${createdTags.join("、")}（已加入 _系統/tags.json，要合併成既有 tag 可在那裡加別名）` : null,
     notebookId ? `📓 NotebookLM notebook id：${notebookId}` : null,
     relatedResult?.linkedCount ? `🔗 已跟 ${relatedResult.linkedCount} 篇既有筆記互相補上關聯連結` : null,
     mocResult?.updated ? `🗺️ 已更新「${mocResult.mocPath}」分類地圖` : null,

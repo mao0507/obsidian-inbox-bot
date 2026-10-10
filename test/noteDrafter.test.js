@@ -4,7 +4,9 @@ import { createCliBackend, createApiBackend } from "../src/aiBackends.js";
 import { createNoteDrafter } from "../src/noteDrafter.js";
 
 const good = {
-  folder: "知識庫",
+  category: "技術",
+  subcategory: "前端框架",
+  primary_tag: "Vue",
   title: "t",
   tags: ["a"],
   summary: "s",
@@ -48,7 +50,7 @@ for (const [label, stdout] of [
   test(`CLI backend parses ${label}`, async () => {
     const { backend, calls } = cliReturning(stdout);
     assertDraft(await draftWith(backend));
-    assert.match(calls[0].input, /SYS[\s\S]*USER[\s\S]*"folder": string/);
+    assert.match(calls[0].input, /SYS[\s\S]*USER[\s\S]*"category": "技術" \| "AI"/);
     assert.match(calls[0].input, /"review_questions": \{ "question": string, "answer": string \}\[\]/);
   });
 }
@@ -59,13 +61,6 @@ test("API backend returns the same draft", async () => {
 
 test("CLI backend throws on non-JSON output", async () => {
   await assert.rejects(draftWith(cliReturning("I cannot do that").backend), /沒有回傳可用/);
-});
-
-test("invalid folder falls back to inbox, for both adapters", async () => {
-  const bad = { ...good, folder: "亂寫" };
-  for (const backend of [cliReturning(JSON.stringify(bad)).backend, apiReturning(bad)]) {
-    assert.equal((await draftWith(backend)).folder, "收件匣/待整理");
-  }
 });
 
 test("missing required field is rejected, for both adapters", async () => {

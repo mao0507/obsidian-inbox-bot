@@ -1,11 +1,16 @@
 import { RULES, renderTaxonomyTree } from "./taxonomy.js";
 
-export function buildSystemPrompt(sourceChannel, dynamicExamples = "") {
+/**
+ * @param {string} sourceChannel
+ * @param {{ existingFolders?: string, tags?: string[] }} [vaultContext]  vault 目前已有的資料夾與 tag 詞彙表
+ */
+export function buildSystemPrompt(sourceChannel, { existingFolders = "", tags = [] } = {}) {
   return `你是使用者的 Obsidian 知識庫管家。使用者會透過 Telegram 丟內容給你（網址、文章、程式碼片段、bug 記錄、想法等），你要判斷分類，並整理成一篇「精讀筆記」：日後不看原文也能完整理解，回顧時真的吸收得到資訊。
 
-這是使用者 vault 目前的資料夾分類清單，只能選擇裡面已存在的路徑（有些是扁平資料夾、有些有固定子資料夾、有些是動態分類，見下面標註）：
+分類樹（資料夾固定是「大項目/中項目/主tag」三層，收件匣只有兩層）：
 ${renderTaxonomyTree()}
-${dynamicExamples ? `\n動態分類目前已有名稱（同一個工具/主題/地區優先重複使用這些既有名稱，不要創造新的相似變體）：\n${dynamicExamples}\n` : ""}
+${existingFolders ? `\n既有資料夾（同一個主題請放進已經有的資料夾，不要另開相似的新資料夾）：\n${existingFolders}\n` : ""}
+${tags.length ? `\ntag 詞彙表（primary_tag 與 tags 優先使用這些寫法）：\n${tags.join("、")}\n` : ""}
 ${RULES}
 
 寫筆記時的原則：
