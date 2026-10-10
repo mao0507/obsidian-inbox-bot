@@ -65,20 +65,25 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
 
   // type 由流程決定，不交給 AI 判斷；原文標題/作者/日期優先用 fetcher 從網頁 metadata 拿到的，
   // 拿不到才用 AI 從內文找到的（AI 被要求看不出來就留空，不要猜）。
+  // fetcher 的降級說明（例如影片沒有字幕）放在筆記最上方，回顧時一眼看得出這篇資訊不完整。
   async function draftAndSave({ rawText, fetched, sources, sourceChannel, type }) {
     const draft = await drafter.draftNote({ rawText, fetched, sourceChannel });
     const source = fetched.find((f) => f.ok) || {};
+    const warnings = fetched.map((f) => f.warning).filter(Boolean);
     const note = {
       ...draft,
       type,
       original_title: source.title || draft.original_title,
       author: source.byline || draft.author,
       published: source.published || draft.published,
+      channel: source.channel,
+      duration: source.duration,
+      body: [...warnings.map((w) => `> [!warning] ${w}`), draft.body].join("\n\n"),
       sources,
       sourceChannel,
     };
     const result = vault.writeNote(note);
-    return { draft: note, result, ...(await finalizeWrittenNote(note, result)) };
+    return { draft: note, result, warnings, ...(await finalizeWrittenNote(note, result)) };
   }
 
   return {
@@ -100,7 +105,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         fetched.push(await fetcher.fetch(url));
       }
 
-      const type = urls.length ? "article" : "note";
+      const type = fetched.some((f) => f.kind === "video") ? "video" : urls.length ? "article" : "note";
       const saved = await draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel, type });
       // 抓不到的網址照樣建立筆記（只靠網址與使用者留言整理），但要讓使用者知道原因
       const fetchErrors = fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error }));

@@ -21,15 +21,23 @@ ${RULES}
 - 來源標記為 ${sourceChannel}。`;
 }
 
+const VIDEO_INSTRUCTIONS = `這是影片，內容來自逐字稿：
+- content 依影片章節分段（沒有章節就依主題分段），每段的 ### 小標前面加上該段起始的時間戳連結，直接沿用逐字稿裡的 [mm:ss](連結) 格式，點了能跳到影片那一秒。
+- 逐字稿是口語，要整理成通順的書面語，但講者提到的每個步驟、數據、工具名稱、例子都要保留，不要只寫大綱。
+- 原文關鍵摘錄引用講者原話時，後面附上時間戳連結。`;
+
+function describeSource(f, i) {
+  if (!f.ok) return `【來源 ${i + 1}：${f.url}】抓取失敗（${f.error}），只能靠網址本身與使用者留言判斷。`;
+  if (f.kind === "video") {
+    return `【影片 ${i + 1}：${f.url}】\n標題：${f.title}\n頻道：${f.channel || "未知"}\n長度：${f.duration || "未知"}\n${VIDEO_INSTRUCTIONS}\n\n${f.text}`;
+  }
+  return `【來源 ${i + 1}：${f.url}】\n標題：${f.title}\n作者：${f.byline || "未知"}\n摘要：${f.excerpt || "無"}\n內文：\n${f.text}`;
+}
+
 export function buildUserPrompt({ rawText, fetched = [] }) {
-  const sourceBlock = fetched
-    .map((f, i) => {
-      if (!f.ok) return `【來源 ${i + 1}：${f.url}】抓取失敗（${f.error}），只能靠網址本身與使用者留言判斷。`;
-      return `【來源 ${i + 1}：${f.url}】\n標題：${f.title}\n作者：${f.byline || "未知"}\n摘要：${f.excerpt || "無"}\n內文：\n${f.text}`;
-    })
-    .join("\n\n---\n\n");
+  const sourceBlock = fetched.map(describeSource).join("\n\n---\n\n");
 
   return `使用者傳入的原始內容：\n${rawText || "(無文字，只有連結)"}\n\n${
-    sourceBlock ? `擷取到的網頁內容：\n\n${sourceBlock}` : "(這則內容沒有網址，或網址抓取失敗)"
+    sourceBlock ? `擷取到的內容：\n\n${sourceBlock}` : "(這則內容沒有網址，或網址抓取失敗)"
   }\n\n請把這則內容整理成一篇 Obsidian 筆記並決定分類。`;
 }

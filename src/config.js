@@ -118,6 +118,14 @@ console.log(
 // NotebookLM 研究功能（/notebook 指令，選用）：需要另外裝 notebooklm-py CLI 並登入過
 // （npm install 不會裝這個，是獨立的 Python 套件，見 README「用 NotebookLM 做深度研究」）。
 // 這裡只偵測指令存不存在，不強制要求，找不到的話 /notebook 指令會回覆說明、不影響其他功能。
+// YouTube 影片字幕用的 yt-dlp（選用，沒裝的話影片只依標題與描述整理）。
+export const YTDLP_COMMAND = process.env.YTDLP_COMMAND || "yt-dlp";
+console.log(
+  commandExists(YTDLP_COMMAND)
+    ? `[youtube] 已偵測到「${YTDLP_COMMAND}」，影片會抓字幕整理`
+    : `[youtube] 找不到「${YTDLP_COMMAND}」，影片筆記只會依標題與描述整理（安裝方式見 .env.example）`
+);
+
 export const NOTEBOOKLM_COMMAND = process.env.NOTEBOOKLM_COMMAND || "notebooklm";
 export const NOTEBOOKLM_ENABLED = commandExists(NOTEBOOKLM_COMMAND);
 

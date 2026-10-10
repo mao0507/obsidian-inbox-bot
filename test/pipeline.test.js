@@ -171,3 +171,43 @@ test("fetch failures are surfaced in the outcome", async () => {
   const out = await pipeline.processIncomingContent("https://blocked.example/post", "telegram");
   assert.deepEqual(out.fetchErrors, [{ url: "https://blocked.example/post", error: "not found" }]);
 });
+
+test("youtube video: type video, channel/duration in frontmatter, timestamp instructions in prompt", async () => {
+  const url = "https://youtu.be/vid";
+  const { vault, calls, pipeline } = setup({
+    fetched: {
+      [url]: {
+        url,
+        ok: true,
+        kind: "video",
+        title: "影片標題",
+        byline: "某頻道",
+        channel: "某頻道",
+        duration: "12:34",
+        published: "2026-03-15",
+        text: "逐字稿：\n[00:01](https://youtu.be/vid?t=1) 大家好",
+      },
+    },
+  });
+
+  const out = await pipeline.processIncomingContent(url, "telegram");
+  const fm = vault.readNote(out.result.relativePath).frontmatter;
+
+  assert.equal(fm.type, "video");
+  assert.equal(fm.channel, "某頻道");
+  assert.equal(fm.duration, "12:34");
+  assert.match(calls.askJson[0].user, /時間戳/);
+});
+
+test("fetcher warnings (e.g. no subtitles) are shown at the top of the note and in the outcome", async () => {
+  const url = "https://youtu.be/vid";
+  const warning = "這支影片沒有字幕，筆記只依標題與影片說明整理";
+  const { vault, pipeline } = setup({
+    fetched: { [url]: { url, ok: true, kind: "video", title: "t", text: "影片說明", warning } },
+  });
+
+  const out = await pipeline.processIncomingContent(url, "telegram");
+
+  assert.deepEqual(out.warnings, [warning]);
+  assert.ok(vault.readNote(out.result.relativePath).body.startsWith(`# Docker 健康檢查\n\n> [!warning] ${warning}`));
+});

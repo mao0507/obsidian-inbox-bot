@@ -10,12 +10,14 @@ import {
   NOTEBOOKLM_COMMAND,
   NOTEBOOKLM_RESEARCH_MODE,
   NOTEBOOKLM_LOGIN_BROWSER,
+  YTDLP_COMMAND,
 } from "./config.js";
 import { createNoteStore } from "./noteStore.js";
 import { createCliBackend, createApiBackend } from "./aiBackends.js";
 import { createNotebookResearch, createNotebookLmRunner } from "./notebookResearch.js";
 import { createPipeline } from "./pipeline.js";
-import { fetchUrlContent } from "./extractContent.js";
+import { createWebFetcher } from "./extractContent.js";
+import { createYouTubeFetcher, createYtDlpRunner, isYouTubeUrl } from "./youtube.js";
 import { commitAndPush } from "./gitSync.js";
 
 export const vault = createNoteStore(VAULT_PATH);
@@ -33,10 +35,13 @@ export const notebook = createNotebookResearch({
   loginBrowser: NOTEBOOKLM_LOGIN_BROWSER,
 });
 
+const webFetcher = createWebFetcher();
+const youtubeFetcher = createYouTubeFetcher({ run: createYtDlpRunner(YTDLP_COMMAND), web: webFetcher });
+
 export const pipeline = createPipeline({
   vault,
   ai,
-  fetcher: { fetch: fetchUrlContent },
+  fetcher: { fetch: (url) => (isYouTubeUrl(url) ? youtubeFetcher : webFetcher).fetch(url) },
   notebook,
   git: { commitAndPush },
 });

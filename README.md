@@ -332,6 +332,17 @@ node scripts/test-notion.js https://你的-notion-頁面網址
 ```
 成功會印出標題和內文預覽，失敗會告訴你原因（通常是頁面沒公開分享，或還沒跑 `npx playwright install chromium`）。
 
+## YouTube 影片筆記（選用：yt-dlp）
+
+丟 YouTube 連結（watch、youtu.be、shorts、live 都可以）時，會用 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 抓影片資訊與字幕，整理成跟文章一樣的精讀筆記：
+
+- 字幕優先順序：人工繁中 → 人工簡中 → 人工英文 → 自動產生的字幕（影片原始語言）。筆記一律整理成繁體中文。
+- 依影片章節分段（沒有章節就依主題分段），每段標題附上時間戳連結，點了直接跳到影片那一秒。
+- frontmatter 會有 `type: video`、`channel`、`duration`。
+- 沒有字幕、或這台電腦沒裝 yt-dlp 時，改依標題與影片說明整理，筆記最上方和 Telegram 回覆都會標註。
+
+安裝 yt-dlp（獨立的 CLI，不是 npm 依賴）：Windows `winget install yt-dlp.yt-dlp`、macOS `brew install yt-dlp`、Linux `pipx install yt-dlp`。指令名稱不同時，在 `.env` 設 `YTDLP_COMMAND`。
+
 ## 已知限制
 
 - 只在你的電腦開機、程式在跑的時候才能接收新內容；電腦關機或程式沒開，傳給 bot 的訊息不會被處理。

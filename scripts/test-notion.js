@@ -3,7 +3,7 @@
 // 用法：
 //   npx playwright install chromium   # 第一次用要先跑這行（如果還沒跑過）
 //   node scripts/test-notion.js https://你的-notion-頁面網址
-import { fetchUrlContent } from "../src/extractContent.js";
+import { createWebFetcher } from "../src/extractContent.js";
 
 const url = process.argv[2];
 if (!url) {
@@ -13,7 +13,7 @@ if (!url) {
 
 console.log(`正在讀取：${url}\n（第一次執行會比較慢，Playwright 要先啟動瀏覽器）\n`);
 
-const result = await fetchUrlContent(url);
+const result = await createWebFetcher().fetch(url);
 
 if (result.ok) {
   console.log("✅ 成功抓到內容");

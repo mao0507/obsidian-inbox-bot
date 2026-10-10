@@ -92,6 +92,8 @@ function serializeFrontmatter(note) {
   optional("original_title");
   optional("author");
   optional("published");
+  optional("channel");
+  optional("duration");
   lines.push(`date_added: ${todayISO()}`);
   lines.push(`via: ${sourceChannel}`);
   lines.push(`reading_time: ${readingTime(body)}`);

@@ -238,12 +238,6 @@ export function createWebFetcher({ fetchStatic = fetchViaFetch, fetchBrowser = f
   };
 }
 
-const webFetcher = createWebFetcher();
-
-/** 抓一個網址並抽出正文（見 createWebFetcher 的備援規則）。 */
-export function fetchUrlContent(url) {
-  return webFetcher.fetch(url);
-}
 
 const BLOCK_TAGS = new Set(["P", "DIV", "SECTION", "ARTICLE", "HEADER", "FOOTER", "FIGURE", "FIGCAPTION", "TABLE", "TR"]);
 const BLOCK_SELECTOR = "h1,h2,h3,h4,h5,h6,pre,ul,ol,blockquote,p,div,section,table";

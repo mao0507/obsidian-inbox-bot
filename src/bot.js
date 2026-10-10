@@ -14,7 +14,7 @@ function isAllowed(userId) {
 // 一般內容跟 /notebook 研究存檔完成後共用的回覆內容。extraLines 會插在標題下面（例如研究主題）。
 function formatSavedReply(
   header,
-  { draft, result, notebookId, relatedResult, mocResult, gitResult, fetchErrors = [] },
+  { draft, result, notebookId, relatedResult, mocResult, gitResult, fetchErrors = [], warnings = [] },
   extraLines = []
 ) {
   const gitLine = !gitResult?.attempted || gitResult.skipped // 沒設定 VAULT_GIT_REMOTE、或沒有新異動可 commit
@@ -26,6 +26,7 @@ function formatSavedReply(
   return [
     header,
     ...fetchErrors.map(({ url, error }) => `⚠️ 抓不到原文，只依網址與留言整理：${url}（${error}）`),
+    ...warnings.map((w) => `⚠️ ${w}`),
     ...extraLines,
     `標題：${draft.title}`,
     `資料夾：${draft.folder}`,
