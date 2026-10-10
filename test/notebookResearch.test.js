@@ -153,3 +153,39 @@ test("supplementResearch also recovers from an expired login", async () => {
   const result = await createNotebookResearch({ run, ai: fakeAi() }).supplementResearch("nb-existing", plan);
   assert.equal(result.reportText, "# 報告內容");
 });
+
+// source list 的假回應：依 -n 的 notebook id 回傳來源；不在表裡的 notebook 視為已刪除
+function withNotebooks(sourcesById) {
+  return fakeRun({
+    "source list": (args) => {
+      const id = args[args.indexOf("-n") + 1];
+      if (!sourcesById[id]) throw new Error("not found");
+      return JSON.stringify({ notebook_id: id, sources: sourcesById[id].map((url, i) => ({ id: `s${i}`, url })) });
+    },
+  });
+}
+
+test("rebuildResearch: largest notebook is primary, other notebooks' sources are merged in, report from primary", async () => {
+  const { run, calls } = withNotebooks({
+    small: ["https://a.com", "https://shared.com"],
+    big: ["https://shared.com", "https://b.com", "https://c.com"],
+  });
+  const result = await createNotebookResearch({ run, ai: fakeAi() }).rebuildResearch({
+    notebookIds: ["small", "big", "gone"],
+    plan,
+  });
+
+  assert.equal(result.notebookId, "big");
+  assert.deepEqual(result.mergedFrom, ["small"]);
+  const added = calls.filter((a) => a[0] === "source" && a[1] === "add").map((a) => [a[2], a[a.indexOf("-n") + 1]]);
+  assert.deepEqual(added, [["https://a.com", "big"]], "only sources the primary does not have yet");
+  const report = calls.find((a) => a[0] === "generate");
+  assert.equal(report[report.indexOf("-n") + 1], "big");
+  assert.equal(result.reportText, "# 報告內容");
+});
+
+test("rebuildResearch: returns null when every notebook is gone", async () => {
+  const { run, calls } = withNotebooks({});
+  assert.equal(await createNotebookResearch({ run, ai: fakeAi() }).rebuildResearch({ notebookIds: ["x", "y"], plan }), null);
+  assert.equal(calls.some((a) => a[0] === "generate"), false);
+});

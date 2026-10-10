@@ -368,7 +368,18 @@ pnpm run service:install
 - 同一個網址的多篇舊筆記會合併成一篇，保留最早的收錄日期。
 - 原文抓不到（網站下架、需要登入、被限流）或原本就沒有網址的筆記，以原筆記內容為來源重建。
 - 進度存在 `_系統/migration-state.json`，中斷了可以重跑同一個指令接著做。結果見 `_系統/migration-report.md`。
-- NotebookLM 研究筆記不在這裡處理，另見下一節。
+
+### 研究筆記（NotebookLM）
+
+```bash
+pnpm run migrate research-plan       # AI 把同主題的研究分組（例如 grill-me 的 4 篇合成 1 組），每組附研究計畫，寫出 _系統/migration-research-plan.md
+pnpm run migrate research-trial 1    # 先重建 1 組（deep research 每組可能要半小時）
+pnpm run migrate research-run        # 重建剩下的 → 改寫連結 → 刪除舊研究筆記
+```
+
+- 沿用原本的 NotebookLM notebook（從舊筆記正文解析 notebook id）。同一組有多個 notebook 時，以來源最多的為主體，把其他 notebook 的來源網址匯入，再依研究計畫補跑 deep research、產生新報告。
+- notebook 都已經被刪掉的組，改用研究計畫重新研究。
+- 新筆記的 frontmatter `notebook_ids` 列出這組所有 notebook，保留最早的收錄日期。
 
 ## 已知限制
 

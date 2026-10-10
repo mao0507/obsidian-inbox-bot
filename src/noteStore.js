@@ -78,7 +78,12 @@ function serializeFrontmatter(note) {
   const { title, tags, summary, sources, sourceChannel, reasoning, body } = note;
   const lines = ["---"];
   const optional = (key) => {
-    if (note[key]) lines.push(`${key}: ${yamlEscape(String(note[key]))}`);
+    const value = note[key];
+    if (Array.isArray(value)) {
+      if (value.length) lines.push(`${key}:`, ...value.map((v) => `  - ${yamlEscape(String(v))}`));
+    } else if (value) {
+      lines.push(`${key}: ${yamlEscape(String(value))}`);
+    }
   };
   lines.push(`title: ${yamlEscape(title)}`);
   optional("type");
@@ -97,6 +102,7 @@ function serializeFrontmatter(note) {
   optional("duration");
   optional("topic");
   optional("notebook_id");
+  optional("notebook_ids"); // 合併多份研究時，所有來源 notebook
   lines.push(`date_added: ${note.date_added || todayISO()}`);
   lines.push(`via: ${sourceChannel}`);
   lines.push(`reading_time: ${readingTime(body)}`);

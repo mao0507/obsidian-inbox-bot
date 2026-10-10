@@ -24,7 +24,7 @@ function oldNote(vault, relPath, { title, source, via = "telegram", date = "2025
   vault.writeFile(relPath, `${fm}\n\n# ${title}\n\n${body}\n`);
 }
 
-function setup({ fetchable = {} } = {}) {
+function setup({ fetchable = {}, researchGroups = { groups: [] } } = {}) {
   const vault = createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "migration-test-")));
   const calls = { askJson: [], git: 0 };
   const ai = {
@@ -32,6 +32,7 @@ function setup({ fetchable = {} } = {}) {
     ask: async () => "",
     askJson: async (input) => {
       calls.askJson.push(input);
+      if (input.tool.name === "research_groups") return researchGroups;
       const title = (input.user.match(/原標題：([^）\n]+)/) || [])[1] || "無標題";
       return {
         category: "技術",
@@ -52,7 +53,13 @@ function setup({ fetchable = {} } = {}) {
     fetch: async (url) => (fetchable[url] ? { url, ok: true, title: "原文", text: fetchable[url] } : { url, ok: false, error: "HTTP 404" }),
   };
   const git = { commitAndPush: async () => (calls.git++, { attempted: false }) };
-  const pipeline = createPipeline({ vault, ai, fetcher, notebook: {}, git });
+  const notebook = {
+    rebuildResearch: async ({ notebookIds, plan }) => {
+      calls.rebuiltResearch = [...(calls.rebuiltResearch || []), { notebookIds, plan }];
+      return { notebookId: notebookIds[0], mergedFrom: notebookIds.slice(1), reportText: `報告：${plan.question}` };
+    },
+  };
+  const pipeline = createPipeline({ vault, ai, fetcher, notebook, git });
   return { vault, calls, migration: createMigration({ vault, pipeline, fetcher, pauseMs: 0 }) };
 }
 
@@ -162,4 +169,61 @@ test("finalize rewrites links in notes that were not migrated, keeping aliases",
   const target = (p) => p.replace(/\.md$/, "");
   assert.ok(body.includes(`[[${target(newOf("知識庫/Vue/Vue3-生命週期.md"))}|`), body);
   assert.ok(body.includes(`[[${target(newOf("旅遊/日本/北海道/北海道懶人包 (2).md"))}|那篇遊記]]`), body);
+});
+
+function seedResearchNotes(vault) {
+  const id = (n) => `${String(n).repeat(8)}-${String(n).repeat(4)}-${String(n).repeat(4)}-${String(n).repeat(4)}-${String(n).repeat(12)}`;
+  oldNote(vault, "AI/ClaudeCode/教學文章/grill-me 研究一.md", { title: "grill-me 研究一", via: "telegram-notebook", body: `notebook id: ${id(1)}`, date: "2026-07-01" });
+  oldNote(vault, "AI/綜合/教學文章/grill-me 研究二.md", { title: "grill-me 研究二", via: "telegram-notebook", body: `notebook id: ${id(2)}`, date: "2026-07-05" });
+  oldNote(vault, "知識庫/PostgreSQL研究.md", { title: "PostgreSQL研究", via: "telegram-notebook", body: `notebook id: ${id(3)}` });
+  oldNote(vault, "知識庫/引用.md", { title: "引用", body: "見 [[grill-me 研究二]]" });
+  return id;
+}
+
+const grillPlan = { question: "grill-me 技能是什麼、怎麼用", angles: ["原理", "用法"] };
+
+test("research plan: AI groups same-topic research; paths it misses become their own group", async () => {
+  const { vault, calls, migration } = setup({
+    researchGroups: {
+      groups: [{ paths: ["AI/ClaudeCode/教學文章/grill-me 研究一.md", "AI/綜合/教學文章/grill-me 研究二.md"], ...grillPlan }],
+    },
+  });
+  seedResearchNotes(vault);
+
+  const groups = await migration.planResearch();
+
+  assert.match(calls.askJson[0].user, /grill-me 研究一[\s\S]*PostgreSQL研究/);
+  assert.deepEqual(
+    groups.map((g) => g.oldPaths),
+    [["AI/ClaudeCode/教學文章/grill-me 研究一.md", "AI/綜合/教學文章/grill-me 研究二.md"], ["知識庫/PostgreSQL研究.md"]]
+  );
+  assert.match(vault.readFile("_系統/migration-research-plan.md"), /grill-me 技能是什麼、怎麼用/);
+  assert.equal(migration.inventory().some((g) => g.oldPaths.some((p) => p.includes("研究"))), false, "general inventory skips research");
+});
+
+test("research rebuild + finalize: one note per topic, notebooks merged, links rewritten, old notes deleted", async () => {
+  const { vault, calls, migration } = setup({
+    researchGroups: {
+      groups: [{ paths: ["AI/ClaudeCode/教學文章/grill-me 研究一.md", "AI/綜合/教學文章/grill-me 研究二.md"], ...grillPlan }],
+    },
+  });
+  const id = seedResearchNotes(vault);
+
+  await migration.planResearch();
+  await migration.rebuildResearch({ limit: 1 });
+  await migration.rebuildResearch();
+  await migration.rebuild(); // 一般筆記（引用.md）
+  await migration.finalize();
+
+  assert.deepEqual(calls.rebuiltResearch.map((r) => r.notebookIds), [[id(1), id(2)], [id(3)]]);
+  assert.deepEqual(calls.rebuiltResearch[0].plan, grillPlan);
+  const state = JSON.parse(vault.readFile("_系統/migration-state.json"));
+  const grill = Object.values(state.done).find((d) => d.oldPaths.length === 2);
+  const note = vault.readNote(grill.newPath);
+  assert.deepEqual(note.frontmatter.notebook_ids, [id(1), id(2)]);
+  assert.equal(note.frontmatter.date_added, "2026-07-01");
+  assert.equal(vault.readFile("AI/綜合/教學文章/grill-me 研究二.md"), null);
+
+  const allBodies = vault.listNotes().map((n) => n.body).join("\n");
+  assert.ok(allBodies.includes(`[[${grill.newPath.replace(/\.md$/, "")}|`), "links point at the merged research note");
 });

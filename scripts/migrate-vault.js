@@ -1,9 +1,12 @@
-// 舊筆記重建（一般筆記；研究筆記另見 #13）。流程與安全網見 src/migration.js。
+// 舊筆記重建（一般筆記與 NotebookLM 研究筆記）。流程與安全網見 src/migration.js。
 //
 // 用法：
 //   pnpm run migrate plan          dry-run：寫出 _系統/migration-plan.md，不改任何筆記
 //   pnpm run migrate trial [N]     先重建 N 組（預設 3）讓你檢查品質；舊筆記保留
 //   pnpm run migrate run           重建剩下的全部 → 改寫連結 → 刪除舊筆記 → 重新產生分類地圖
+//   pnpm run migrate research-plan       研究筆記：AI 依主題分組並寫出 _系統/migration-research-plan.md
+//   pnpm run migrate research-trial [N]  先重建 N 組研究（預設 1；每組 deep research 可能要半小時）
+//   pnpm run migrate research-run        重建剩下的研究 → 改寫連結 → 刪除舊研究筆記
 //
 // trial / run 第一次執行前，會先把 vault 目前狀態 commit 並打上 git tag「before-migration」，
 // 想反悔：在 vault 資料夾執行 git reset --hard before-migration。
@@ -66,8 +69,33 @@ switch (command) {
     console.log(`✅ 重建完成：連結已改寫、舊筆記已刪除，結果見 ${VAULT_PATH}/_系統/migration-report.md`);
     break;
   }
+  case "research-plan": {
+    const groups = await migration.planResearch();
+    console.log(`✅ ${groups.length} 組研究，計畫寫在 ${VAULT_PATH}/_系統/migration-research-plan.md`);
+    break;
+  }
+  case "research-trial": {
+    ensureBackup();
+    const limit = Number(arg) || 1;
+    await migration.rebuildResearch({ limit, onProgress });
+    await commitAndPush(`研究筆記重建試跑（${limit} 組）`);
+    console.log(`✅ 試跑完成，結果見 ${VAULT_PATH}/_系統/migration-report.md；舊筆記還保留著。滿意的話執行 pnpm run migrate research-run`);
+    break;
+  }
+  case "research-run": {
+    ensureBackup();
+    const state = await migration.rebuildResearch({ onProgress });
+    if (Object.keys(state.failed).length) {
+      console.error("⚠️  有研究重建失敗（見 migration-report.md），先不刪除舊筆記。修正後重跑 pnpm run migrate research-run");
+      process.exit(1);
+    }
+    await migration.finalize();
+    await commitAndPush("研究筆記重建完成");
+    console.log(`✅ 研究筆記重建完成，結果見 ${VAULT_PATH}/_系統/migration-report.md`);
+    break;
+  }
   default:
-    console.log("用法：pnpm run migrate plan | trial [N] | run");
+    console.log("用法：pnpm run migrate plan | trial [N] | run | research-plan | research-trial [N] | research-run");
     process.exit(command ? 1 : 0);
 }
 process.exit(0);

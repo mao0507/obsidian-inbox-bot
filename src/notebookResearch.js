@@ -191,6 +191,18 @@ export function createNotebookResearch({ run, ai, researchMode = "deep", loginBr
     }
   }
 
+  // notebook 裡所有來源的網址；notebook 不存在（已刪除）或讀取失敗回傳 null。
+  async function listSourceUrls(notebookId) {
+    try {
+      const parsed = parseJsonOutput(await run(["source", "list", "-n", notebookId, "--json"]), "source list");
+      return (parsed.sources || []).map((s) => s.url).filter(Boolean);
+    } catch (err) {
+      if (err instanceof NotebookAuthExpiredError) throw err; // 登入過期不是「notebook 不見了」，交給自動修復
+      console.warn(`[notebooklm] 讀不到 notebook ${notebookId} 的來源（可能已刪除）：${err.message}`);
+      return null;
+    }
+  }
+
   // 非網址的主題：先透過 AI backend 理解使用者實際想研究什麼，摘要成一段清楚的研究說明。
   // 網址主題不會呼叫這支——網址本身沒有內容可以摘要，硬要 AI 憑一個 URL 字面猜主題只會是亂猜，
   // 那種情況交給 describeSource() 讓 notebooklm 讀真正的來源內容。
@@ -359,6 +371,34 @@ export function createNotebookResearch({ run, ai, researchMode = "deep", loginBr
     /** 用 NotebookLM 針對一個主題做研究（新 notebook），回傳報告。 */
     researchTopic(topic, { plan, onStatus } = {}) {
       return withAuthRecovery(() => runResearchFlow(topic, plan), onStatus);
+    },
+
+    /**
+     * 舊研究筆記重建：同一主題可能研究過好幾次（好幾個 notebook）。挑來源最多、仍然存在的 notebook 當主體，
+     * 把其他 notebook 有、主體沒有的來源網址加進主體，再依計畫補跑研究、產生新報告。
+     * 全部 notebook 都已刪除時回傳 null（呼叫端改成重新研究）。
+     */
+    rebuildResearch({ notebookIds, plan, onStatus }) {
+      return withAuthRecovery(async () => {
+        const found = [];
+        for (const id of [...new Set(notebookIds)]) {
+          // eslint-disable-next-line no-await-in-loop
+          const urls = await listSourceUrls(id);
+          if (urls) found.push({ id, urls });
+        }
+        if (!found.length) return null;
+
+        const [primary, ...others] = [...found].sort((a, b) => b.urls.length - a.urls.length);
+        const have = new Set(primary.urls);
+        for (const url of others.flatMap((o) => o.urls)) {
+          if (have.has(url)) continue;
+          have.add(url);
+          // eslint-disable-next-line no-await-in-loop
+          await addUrlSource(primary.id, url);
+        }
+        const reportText = await deepenAndReport(primary.id, plan);
+        return { notebookId: primary.id, mergedFrom: others.map((o) => o.id), reportText };
+      }, onStatus);
     },
 
     /** 在既有 notebook 上依計畫補跑研究、重新產生報告（補充既有研究用）。 */

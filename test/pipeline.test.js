@@ -360,3 +360,51 @@ test("supplementResearch deepens the same notebook and rewrites the same note in
   assert.equal(note.frontmatter.notebook_id, "nb-old");
   assert.match(note.body, /補充後的完整報告/);
 });
+
+test("rebuildResearchNote: merges notebooks, keeps earliest date, lists every notebook id, no per-note commit", async () => {
+  const vault = createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-")));
+  const a = seedResearch(vault, { title: "grill-me 研究一", notebookId: "11111111-1111-1111-1111-111111111111", oldStyle: true });
+  const b = seedResearch(vault, { title: "grill-me 研究二", notebookId: "22222222-2222-2222-2222-222222222222", oldStyle: true });
+  const notes = [a, b].map((p) => vault.readNote(p));
+  notes[1].frontmatter.date_added = "2020-01-01";
+  let gitCalls = 0;
+  const rebuilt = [];
+  const pipeline = createPipeline({
+    ...pipelineDeps(vault),
+    git: { commitAndPush: async () => (gitCalls++, { attempted: false }) },
+    notebook: {
+      rebuildResearch: async ({ notebookIds, plan }) => {
+        rebuilt.push({ notebookIds, plan });
+        return { notebookId: notebookIds[1], mergedFrom: [notebookIds[0]], reportText: "合併後報告" };
+      },
+    },
+  });
+
+  const out = await pipeline.rebuildResearchNote(notes, researchPlan);
+  const fm = vault.readNote(out.result.relativePath).frontmatter;
+
+  assert.deepEqual(rebuilt[0].notebookIds, ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"]);
+  assert.equal(fm.type, "research");
+  assert.equal(fm.notebook_id, "22222222-2222-2222-2222-222222222222");
+  assert.deepEqual(fm.notebook_ids, ["22222222-2222-2222-2222-222222222222", "11111111-1111-1111-1111-111111111111"]);
+  assert.equal(fm.date_added, "2020-01-01");
+  assert.equal(gitCalls, 0);
+});
+
+test("rebuildResearchNote: all notebooks gone -> researches the plan from scratch", async () => {
+  const vault = createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-")));
+  const p = seedResearch(vault, { title: "舊研究", notebookId: "33333333-3333-3333-3333-333333333333", oldStyle: true });
+  const researched = [];
+  const pipeline = createPipeline({
+    ...pipelineDeps(vault),
+    notebook: {
+      rebuildResearch: async () => null,
+      researchTopic: async (topic, options) => (researched.push({ topic, options }), { notebookId: "fresh", reportText: "新報告" }),
+    },
+  });
+
+  const out = await pipeline.rebuildResearchNote([vault.readNote(p)], researchPlan);
+
+  assert.deepEqual(researched, [{ topic: researchPlan.question, options: { plan: researchPlan } }]);
+  assert.equal(vault.readNote(out.result.relativePath).frontmatter.notebook_id, "fresh");
+});

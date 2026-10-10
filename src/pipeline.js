@@ -9,7 +9,16 @@ import { describeExistingFolders } from "./vaultScan.js";
 import { TAXONOMY, INBOX_FALLBACK, buildFolder } from "./taxonomy.js";
 import { createTagVocabulary } from "./tagVocabulary.js";
 import { planCards, renderCardSection, writeCards } from "./conceptCards.js";
-import { RESEARCH_PLAN_TOOL, buildPlanPrompts, validatePlan, researchNotesIn, notebookIdOf } from "./researchPlan.js";
+import {
+  RESEARCH_PLAN_TOOL,
+  RESEARCH_GROUP_TOOL,
+  buildPlanPrompts,
+  buildGroupPrompts,
+  normalizeGroups,
+  validatePlan,
+  researchNotesIn,
+  notebookIdOf,
+} from "./researchPlan.js";
 
 const MAX_URLS_PER_MESSAGE = 3;
 
@@ -146,7 +155,17 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
   }
 
   // 研究報告 -> 精讀筆記：依研究角度分章節、不壓縮；完整原始報告摺疊附在文末，方便查證。
-  function saveResearchNote({ userInput, question, angles = [], notebookId, reportText, sourceChannel, targetPath }) {
+  function saveResearchNote({
+    userInput,
+    question,
+    angles = [],
+    notebookId,
+    reportText,
+    sourceChannel,
+    targetPath,
+    extra = {},
+    skipGit = false,
+  }) {
     const angleBlock = angles.length ? `研究角度：\n${angles.map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n` : "";
     const rawText =
       `研究問題：${question}（使用者原始輸入：${userInput}）\n\n${angleBlock}` +
@@ -165,9 +184,10 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       sources: [],
       sourceChannel,
       type: "research",
-      extra: { topic: question, notebook_id: notebookId },
+      extra: { topic: question, notebook_id: notebookId, ...extra },
       appendix: `> [!note]- 原始研究報告（NotebookLM）\n${quotedReport}`,
       targetPath,
+      skipGit,
     });
   }
 
@@ -229,6 +249,41 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         skipGit: true,
       });
       return { ...saved, fetchErrors: fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error })) };
+    },
+
+    /**
+     * 舊研究筆記重建（見 migration.js）：同主題的一組舊研究筆記 -> 一篇新研究筆記。
+     * 沿用原本的 notebook（多個就合併到來源最多的那個），依計畫補跑研究、產生新報告；
+     * notebook 全都不在了才重新研究。frontmatter 的 notebook_ids 列出所有相關 notebook。
+     */
+    /** 舊研究筆記重建前：請 AI 把同主題的研究分組，每組附研究計畫。 */
+    async groupResearchNotes(notes) {
+      const { system, user } = buildGroupPrompts(notes);
+      return normalizeGroups(await ai.askJson({ system, user, tool: RESEARCH_GROUP_TOOL }), notes);
+    },
+
+    async rebuildResearchNote(oldNotes, plan) {
+      const notebookIds = oldNotes.map(notebookIdOf).filter(Boolean);
+      let rebuilt = notebookIds.length ? await notebook.rebuildResearch({ notebookIds, plan }) : null;
+      if (!rebuilt) {
+        const fresh = await notebook.researchTopic(plan.question, { plan });
+        rebuilt = { notebookId: fresh.notebookId, mergedFrom: [], reportText: fresh.reportText };
+      }
+      const dates = oldNotes.map((n) => n.frontmatter.date_added).filter(Boolean).sort();
+      const saved = await saveResearchNote({
+        userInput: oldNotes.map((n) => n.title).join("／"),
+        question: plan.question,
+        angles: plan.angles,
+        notebookId: rebuilt.notebookId,
+        reportText: rebuilt.reportText,
+        sourceChannel: oldNotes[0].frontmatter.via || "migration",
+        extra: {
+          notebook_ids: [rebuilt.notebookId, ...rebuilt.mergedFrom],
+          ...(dates.length ? { date_added: dates[0] } : {}),
+        },
+        skipGit: true,
+      });
+      return { notebookId: rebuilt.notebookId, ...saved };
     },
 
     /**

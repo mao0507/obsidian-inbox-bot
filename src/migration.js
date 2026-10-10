@@ -1,6 +1,7 @@
 import { normalizeUrl } from "./duplicateCheck.js";
 import { regenerateMoc } from "./mocSync.js";
 import { TAXONOMY } from "./taxonomy.js";
+import { notebookIdOf } from "./researchPlan.js";
 
 // 舊筆記重建：把改版前的筆記（frontmatter 沒有 type 欄位）用新流程重新產生——重新抓原文、新的精讀模板、
 // 新分類樹、新檔名——再把全 vault 的 [[連結]] 改指向新筆記、刪掉舊筆記。
@@ -15,6 +16,7 @@ import { TAXONOMY } from "./taxonomy.js";
 const STATE_PATH = "_系統/migration-state.json";
 const PLAN_PATH = "_系統/migration-plan.md";
 const REPORT_PATH = "_系統/migration-report.md";
+const RESEARCH_PLAN_PATH = "_系統/migration-research-plan.md";
 
 const isOldFormat = (note) => !note.frontmatter?.type; // 新筆記、卡片、地圖都有 type
 const isResearch = (note) => /^(telegram-notebook|claude-code-skill)$/.test(note.frontmatter?.via || "");
@@ -141,6 +143,74 @@ export function createMigration({ vault, pipeline, fetcher, pauseMs = 3000 }) {
           delete state.failed[group.id];
         } catch (err) {
           state.failed[group.id] = err.message;
+          onProgress?.(`  ❌ ${err.message}`);
+        }
+        saveState(state);
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(pauseMs);
+      }
+      writeReport(state);
+      return state;
+    },
+
+    /**
+     * 研究筆記（NotebookLM）的重建計畫：請 AI 把同主題的研究分組、每組附研究計畫，
+     * 存進進度檔（之後 rebuildResearch 照這份分組做），並寫出 _系統/migration-research-plan.md。不改任何筆記。
+     */
+    async planResearch() {
+      const notes = vault.listNotes().filter((n) => !isSystem(n) && isOldFormat(n) && isResearch(n));
+      const groups = await pipeline.groupResearchNotes(notes);
+      const state = loadState();
+      state.researchGroups = groups;
+      saveState(state);
+
+      const notebookIds = (paths) => paths.map((p) => notebookIdOf(notes.find((n) => n.path === p)) || "？（找不到）");
+      vault.writeFile(
+        RESEARCH_PLAN_PATH,
+        [
+          "# 研究筆記重建計畫（dry-run）",
+          "",
+          `共 ${notes.length} 篇研究筆記，分成 ${groups.length} 組。每組會沿用原本的 NotebookLM notebook（多個就合併到來源最多的那個），依研究計畫補跑 deep research 並產生新報告。`,
+          "",
+          "| 舊筆記 | notebook id | 研究問題 | 研究角度 |",
+          "|---|---|---|---|",
+          ...groups.map(
+            (g) =>
+              `| ${cell(g.oldPaths.join("<br>"))} | ${cell(notebookIds(g.oldPaths).join("<br>"))} | ${cell(g.question)} | ${cell(
+                g.angles.join("；") || "（由 NotebookLM 自行歸納）"
+              )} |`
+          ),
+          "",
+        ].join("\n")
+      );
+      return groups;
+    },
+
+    /**
+     * 依 planResearch 的分組重建研究筆記（limit 用來試跑）。舊筆記保留到 finalize；進度與一般筆記共用。
+     * @param {{ limit?: number, onProgress?: (msg: string) => void }} [options]
+     */
+    async rebuildResearch({ limit = Infinity, onProgress } = {}) {
+      if (!loadState().researchGroups) await this.planResearch();
+      const state = loadState();
+      const pending = state.researchGroups.filter((g) => !state.done[g.oldPaths[0]]);
+      for (const [i, group] of pending.slice(0, limit).entries()) {
+        const id = group.oldPaths[0];
+        onProgress?.(`(${i + 1}/${Math.min(limit, pending.length)}) ${group.question}（${group.oldPaths.length} 篇）`);
+        try {
+          const notes = group.oldPaths.map((p) => vault.readNote(p));
+          // eslint-disable-next-line no-await-in-loop
+          const out = await pipeline.rebuildResearchNote(notes, { question: group.question, angles: group.angles });
+          state.done[id] = {
+            oldPaths: group.oldPaths,
+            newPath: out.result.relativePath,
+            folder: out.draft.folder,
+            tags: out.draft.tags,
+            fetchOk: true,
+          };
+          delete state.failed[id];
+        } catch (err) {
+          state.failed[id] = err.message;
           onProgress?.(`  ❌ ${err.message}`);
         }
         saveState(state);

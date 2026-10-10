@@ -97,3 +97,59 @@ export function researchNotesIn(vault) {
     )
     .map((n) => ({ path: n.path, title: n.title, topic: n.frontmatter?.topic || "", notebookId: notebookIdOf(n) }));
 }
+
+// ---- 舊研究筆記重建：同主題分組 ----
+
+export const RESEARCH_GROUP_TOOL = {
+  name: "research_groups",
+  description: "把研究筆記依主題分組，每組附一份研究計畫",
+  input_schema: {
+    type: "object",
+    properties: {
+      groups: {
+        type: "array",
+        description: "每一組是主題實質相同的研究筆記（只有一篇的主題也自成一組），每篇筆記只能出現在一組",
+        items: {
+          type: "object",
+          properties: {
+            paths: { type: "array", items: { type: "string" }, description: "這組筆記的路徑（原樣照抄）" },
+            question: { type: "string", description: "這組的研究問題（繁體中文，30 字以內）" },
+            angles: { type: "array", items: { type: "string" }, description: "3~5 個研究角度，涵蓋這組各篇筆記關注的面向" },
+          },
+          required: ["paths", "question", "angles"],
+        },
+      },
+    },
+    required: ["groups"],
+  },
+};
+
+export function buildGroupPrompts(notes) {
+  return {
+    system:
+      "你在整理使用者的研究筆記庫。同一個主題常被研究了好幾次（標題說法不同），請把主題實質相同的筆記分在同一組，" +
+      "並為每組寫一份研究計畫（研究問題 + 研究角度），之後會依計畫把這組合併成一份更完整的研究。用繁體中文。",
+    user: `研究筆記清單：\n${notes.map((n) => `- ${n.path}（標題：${n.title}）`).join("\n")}`,
+  };
+}
+
+/**
+ * 整理 AI 的分組：只收清單裡的路徑、每篇只出現一次；AI 漏掉的筆記各自成一組（研究問題用標題）。
+ * @returns {Array<{ oldPaths: string[], question: string, angles: string[] }>}
+ */
+export function normalizeGroups(raw, notes) {
+  const known = new Map(notes.map((n) => [n.path, n]));
+  const used = new Set();
+  const groups = [];
+  for (const group of raw?.groups || []) {
+    const oldPaths = (group.paths || []).filter((p) => known.has(p) && !used.has(p)).sort();
+    if (!oldPaths.length) continue;
+    oldPaths.forEach((p) => used.add(p));
+    const angles = (group.angles || []).map((a) => String(a).trim()).filter(Boolean).slice(0, 5);
+    groups.push({ oldPaths, question: String(group.question || "").trim() || known.get(oldPaths[0]).title, angles });
+  }
+  for (const note of notes) {
+    if (!used.has(note.path)) groups.push({ oldPaths: [note.path], question: note.title, angles: [] });
+  }
+  return groups.sort((a, b) => (a.oldPaths[0] < b.oldPaths[0] ? -1 : 1));
+}
