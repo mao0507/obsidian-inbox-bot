@@ -24,7 +24,9 @@ export function runCli(command, args, input, { timeoutMs = DEFAULT_TIMEOUT_MS } 
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error(`agent CLI 結束代碼 ${code}：${stderr.slice(0, 500) || "(無錯誤訊息)"}`));
+        // claude CLI 的錯誤（例如用量額度用完）有時印在 stdout，stderr 是空的
+        const detail = stderr.trim().slice(0, 500) || stdout.trim().slice(-500) || "(無錯誤訊息)";
+        reject(new Error(`agent CLI 結束代碼 ${code}：${detail}`));
         return;
       }
       resolve(stdout);
