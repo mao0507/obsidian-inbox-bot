@@ -85,6 +85,11 @@ export function createTagVocabulary(vault) {
       return { tags: result, created };
     },
 
+    /** 查標準寫法，不建立新 tag；找不到回傳 null（概念卡比對名稱時用）。 */
+    lookup(name) {
+      return index.get(tagKey(cleanTag(name))) || null;
+    },
+
     /** 所有標準寫法（給 prompt 用） */
     list() {
       return Object.keys(tags).sort((a, b) => a.localeCompare(b, "zh-Hant"));

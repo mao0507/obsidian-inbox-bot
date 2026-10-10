@@ -8,6 +8,7 @@ import { buildSystemPrompt, buildUserPrompt } from "./promptBuilder.js";
 import { describeExistingFolders } from "./vaultScan.js";
 import { TAXONOMY, INBOX_FALLBACK, buildFolder } from "./taxonomy.js";
 import { createTagVocabulary } from "./tagVocabulary.js";
+import { planCards, renderCardSection, writeCards } from "./conceptCards.js";
 
 const MAX_URLS_PER_MESSAGE = 3;
 
@@ -95,6 +96,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     });
     const draft = await drafter.draftNote({ rawText, fetched, sourceChannel });
     const { folder, primaryTag, tags, createdTags } = classify(draft, vocab);
+    const cardPlan = planCards(vault, vocab, draft.concepts);
     const source = fetched.find((f) => f.ok) || {};
     const warnings = fetched.map((f) => f.warning).filter(Boolean);
     const note = {
@@ -108,12 +110,22 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       published: source.published || draft.published,
       channel: source.channel,
       duration: source.duration,
-      body: [...warnings.map((w) => `> [!warning] ${w}`), draft.body].join("\n\n"),
+      body: [...warnings.map((w) => `> [!warning] ${w}`), draft.body, renderCardSection(cardPlan)]
+        .filter(Boolean)
+        .join("\n\n"),
+      cards: cardPlan.map((card) => card.name),
       sources,
       sourceChannel,
     };
     const result = vault.writeNote(note);
-    return { draft: note, result, warnings, createdTags, ...(await finalizeWrittenNote(note, result)) };
+    let cards = [];
+    try {
+      writeCards(vault, cardPlan, { notePath: result.relativePath });
+      cards = cardPlan.map((card) => ({ name: card.name, created: !card.exists }));
+    } catch (err) {
+      console.warn(`[cards] 寫入概念卡失敗：${err.message}`);
+    }
+    return { draft: note, result, warnings, createdTags, cards, ...(await finalizeWrittenNote(note, result)) };
   }
 
   return {

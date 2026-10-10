@@ -64,6 +64,25 @@ export const FILE_NOTE_TOOL = {
         },
       },
       quotes: stringArray("原文關鍵摘錄：1~5 段最重要的原文句子，逐字引用不改寫，方便日後查證（沒有原文就給空陣列）"),
+      concepts: {
+        type: "array",
+        description:
+          "0~3 個值得做成「概念卡」的可重複使用概念（術語、方法、原理，例如 Composables、事件迴圈、間隔重複），" +
+          "不是這篇文章的主題本身。沒有就給空陣列",
+        items: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description:
+                "概念名稱，會成為卡片檔名並用來跟既有卡片比對，所以要短（2~12 字）、只講一個概念、用最常見的叫法：" +
+                "例如「ESM」「事件迴圈」「非阻塞IO」，不要寫成「A 與 B」，也不要加括號補充",
+            },
+            explanation: { type: "string", description: "依這篇內容解釋這個概念：是什麼、為什麼重要、怎麼用（2~5 句，可含範例）" },
+          },
+          required: ["name", "explanation"],
+        },
+      },
       reasoning: { type: "string", description: "簡短說明為什麼這樣分類" },
     },
     required: ["category", "subcategory", "primary_tag", "title", "tags", "summary", "kind", "tldr", "key_points", "content", "review_questions"],

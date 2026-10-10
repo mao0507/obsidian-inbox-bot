@@ -21,7 +21,7 @@ const MAX_FILENAME_LENGTH = 60;
 
 // 檔名 = 標題：人類讀得懂、專有名詞保留原本大小寫、允許空白。
 // 拿掉檔案系統不允許的字元，以及會讓 Obsidian [[wikilink]] 失效的 # ^ [ ] |。
-function titleToFilename(title) {
+export function titleToFilename(title) {
   return (
     String(title || "")
       .replace(/[\\/:*?"<>|#^[\]]/g, " ")
@@ -102,6 +102,10 @@ function serializeFrontmatter(note) {
   for (const t of tags || []) {
     const clean = sanitizeTag(t);
     if (clean) lines.push(`  - ${clean}`);
+  }
+  if (note.cards?.length) {
+    lines.push("cards:");
+    for (const card of note.cards) lines.push(`  - ${yamlEscape(card)}`);
   }
   lines.push("status: 已整理");
   if (reasoning) lines.push(`classify_note: ${yamlEscape(reasoning)}`);
