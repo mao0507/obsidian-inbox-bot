@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { vaultFilePath } from "./config.js";
+import { vault } from "./app.js";
 import { DYNAMIC_TAXONOMY } from "./taxonomy.js";
 
 function listDirs(absPath) {
@@ -31,7 +31,7 @@ export function getDynamicFolderExamples() {
     function walk(relSegments, levelIndex) {
       if (levelIndex === cfg.levels.length) return true;
       const level = cfg.levels[levelIndex];
-      const dirs = listDirs(vaultFilePath(top, ...relSegments));
+      const dirs = listDirs(vault.absPath([top, ...relSegments].join("/")));
       let foundAny = false;
 
       if (level.type === "free") {

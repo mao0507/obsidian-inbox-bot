@@ -1,6 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
-import { vaultFilePath } from "./config.js";
+import { vault } from "./app.js";
 import { FLAT_CATEGORIES, DYNAMIC_TAXONOMY } from "./taxonomy.js";
 
 // 之前完全沒有自動建立筆記間的關聯，筆記分類完就各自獨立，
@@ -22,17 +20,6 @@ function isDynamicFolder(folder) {
 
 function isFlatFolder(folder) {
   return FLAT_CATEGORIES.includes(folder);
-}
-
-function readFrontmatterTags(content) {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!fmMatch) return [];
-  const tagsBlock = fmMatch[1].match(/^tags:\n((?:[ \t]*-[ \t].+\n?)*)/m);
-  if (!tagsBlock) return [];
-  return tagsBlock[1]
-    .split("\n")
-    .map((l) => l.replace(/^[ \t]*-[ \t]/, "").trim())
-    .filter(Boolean);
 }
 
 // 純粹「加上一條連結」，不會動到區塊裡既有的其他連結（包含使用者自己手動加的）。
@@ -68,56 +55,28 @@ export function syncRelatedNotes({ folder, filename, tags }) {
   const flat = isFlatFolder(folder);
   if (!dynamic && !flat) return { linkedCount: 0 };
 
-  const dirAbs = vaultFilePath(...folder.split("/"));
-  let allFiles;
-  try {
-    allFiles = fs.readdirSync(dirAbs).filter((f) => f.endsWith(".md"));
-  } catch {
-    return { linkedCount: 0 };
-  }
-
+  const newPath = `${folder}/${filename}`;
   const newTagsSet = new Set((tags || []).map((t) => String(t).trim()).filter(Boolean));
-  const newBasename = filename.replace(/\.md$/, "");
+  const basename = (relPath) => relPath.slice(relPath.lastIndexOf("/") + 1).replace(/\.md$/, "");
 
-  const siblings = allFiles.filter((f) => {
-    if (f === filename) return false;
-    if (dynamic) return true; // 同資料夾一律視為相關
-    const full = path.join(dirAbs, f);
-    let content;
-    try {
-      content = fs.readFileSync(full, "utf8");
-    } catch {
-      return false;
-    }
-    return readFrontmatterTags(content).some((t) => newTagsSet.has(t));
-  });
+  // 只看「直接放在同一個資料夾」的筆記，不往子資料夾找。
+  const siblings = vault
+    .listNotes(folder)
+    .filter((note) => note.path !== newPath && note.path === `${folder}/${basename(note.path)}.md`)
+    .filter((note) => dynamic || note.tags.some((t) => newTagsSet.has(t))); // 動態分類：同資料夾一律視為相關
 
   if (siblings.length === 0) return { linkedCount: 0 };
 
-  // 新筆記本身：補上所有相關既有筆記的連結。
-  const newFilePath = path.join(dirAbs, filename);
-  let newContent;
-  try {
-    newContent = fs.readFileSync(newFilePath, "utf8");
-  } catch {
-    return { linkedCount: 0 };
-  }
+  // 新筆記本身：補上所有相關既有筆記的連結；每篇相關的既有筆記：反過來補上新筆記的連結。
+  vault.updateNote(newPath, (content) =>
+    siblings.reduce((acc, sib) => addRelatedLink(acc, basename(sib.path)), content)
+  );
   for (const sib of siblings) {
-    newContent = addRelatedLink(newContent, sib.replace(/\.md$/, ""));
-  }
-  fs.writeFileSync(newFilePath, newContent, "utf8");
-
-  // 每篇相關的既有筆記：反過來補上新筆記的連結。
-  for (const sib of siblings) {
-    const sibPath = path.join(dirAbs, sib);
-    let sibContent;
     try {
-      sibContent = fs.readFileSync(sibPath, "utf8");
+      vault.updateNote(sib.path, (content) => addRelatedLink(content, basename(newPath)));
     } catch {
-      continue;
+      // 讀寫單篇既有筆記失敗就跳過，不影響其他筆記
     }
-    const updated = addRelatedLink(sibContent, newBasename);
-    if (updated !== sibContent) fs.writeFileSync(sibPath, updated, "utf8");
   }
 
   return { linkedCount: siblings.length };

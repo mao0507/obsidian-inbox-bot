@@ -1,6 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
-import { vaultFilePath } from "./config.js";
+import { vault } from "./app.js";
 import { DYNAMIC_TAXONOMY } from "./taxonomy.js";
 
 // 之前分類地圖（<類別>地圖.md）完全要手動維護——動態分類（AI / 學習 / 旅遊）
@@ -16,27 +14,20 @@ import { DYNAMIC_TAXONOMY } from "./taxonomy.js";
 // 想在地圖上額外寫點什麼，請寫在筆記本身裡，不要手動編輯 <類別>地圖.md，
 // 手動加的內容下次自動重新產生時會被覆蓋掉。
 
-function walkLeaves(dirAbs, relParts, mocFilename, out) {
-  let entries;
-  try {
-    entries = fs.readdirSync(dirAbs, { withFileTypes: true });
-  } catch {
-    return;
+// 把 top 底下所有筆記依「所在資料夾」分組：[{ parts: ["ClaudeCode","教學文章"], files: ["筆記A", ...] }]
+function groupNotesByFolder(top, mocFilename) {
+  const byDir = new Map();
+  for (const note of vault.listNotes(top)) {
+    const parts = note.path.split("/").slice(1); // 去掉 top 本身
+    const file = parts.pop();
+    if (parts.length === 0 && file === mocFilename) continue;
+    const key = parts.join("/");
+    if (!byDir.has(key)) byDir.set(key, { parts, files: [] });
+    byDir.get(key).files.push(file.slice(0, -3));
   }
-  const mdFiles = entries
-    .filter((e) => e.isFile() && e.name.endsWith(".md") && e.name !== mocFilename)
-    .map((e) => e.name.slice(0, -3))
-    .sort((a, b) => a.localeCompare(b, "zh-Hant"));
-
-  if (mdFiles.length > 0) {
-    out.push({ parts: [...relParts], files: mdFiles });
-  }
-
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      walkLeaves(path.join(dirAbs, entry.name), [...relParts, entry.name], mocFilename, out);
-    }
-  }
+  const groups = [...byDir.values()];
+  groups.forEach((g) => g.files.sort((a, b) => a.localeCompare(b, "zh-Hant")));
+  return groups;
 }
 
 /**
@@ -48,10 +39,8 @@ function walkLeaves(dirAbs, relParts, mocFilename, out) {
 export function regenerateMoc(top) {
   if (!DYNAMIC_TAXONOMY[top]) return { updated: false };
 
-  const dirAbs = vaultFilePath(top);
   const mocFilename = `${top}地圖.md`;
-  const groups = [];
-  walkLeaves(dirAbs, [], mocFilename, groups);
+  const groups = groupNotesByFolder(top, mocFilename);
 
   if (groups.length === 0) return { updated: false };
 
@@ -76,11 +65,10 @@ export function regenerateMoc(top) {
     lines.push("");
   }
 
-  fs.mkdirSync(dirAbs, { recursive: true });
-  const content = lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
-  fs.writeFileSync(path.join(dirAbs, mocFilename), content, "utf8");
+  const mocPath = `${top}/${mocFilename}`;
+  vault.writeFile(mocPath, lines.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n");
 
-  return { updated: true, mocPath: path.join(top, mocFilename).replace(/\\/g, "/") };
+  return { updated: true, mocPath };
 }
 
 /**

@@ -1,6 +1,4 @@
-import fs from "node:fs";
-import path from "node:path";
-import { VAULT_PATH } from "./config.js";
+import { vault } from "./app.js";
 
 // 同一個連結被丟進來兩次時（使用者忘記自己丟過、或分享訊息被轉傳兩次），
 // 之前沒有任何檢查，會直接各自生一篇內容幾乎一樣的新筆記
@@ -41,79 +39,16 @@ export function normalizeUrl(raw) {
   }
 }
 
-function listMdFiles(dirAbs, out) {
-  let entries;
-  try {
-    entries = fs.readdirSync(dirAbs, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (entry.name.startsWith(".")) continue;
-    const full = path.join(dirAbs, entry.name);
-    if (entry.isDirectory()) {
-      listMdFiles(full, out);
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      out.push(full);
-    }
-  }
-}
-
-function stripQuotes(str) {
-  const trimmed = str.trim();
-  const m = trimmed.match(/^"(.*)"$/) || trimmed.match(/^'(.*)'$/);
-  return m ? m[1] : trimmed;
-}
-
-// 從一篇筆記的 frontmatter 裡取出 source 跟 other_sources 列出的所有網址。
-function extractSources(content) {
-  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!fmMatch) return [];
-  const fm = fmMatch[1];
-  const sources = [];
-
-  const sourceLine = fm.match(/^source:\s*(.+)$/m);
-  if (sourceLine) sources.push(stripQuotes(sourceLine[1]));
-
-  const otherBlock = fm.match(/^other_sources:\n((?:[ \t]*-[ \t].+\n?)*)/m);
-  if (otherBlock) {
-    for (const line of otherBlock[1].split("\n")) {
-      const m = line.match(/^[ \t]*-[ \t](.+)$/);
-      if (m) sources.push(stripQuotes(m[1]));
-    }
-  }
-
-  return sources.filter(Boolean);
-}
-
 /**
- * 掃描整個 vault，找出跟傳入 urls 陣列裡任何一個網址（正規化後）相符的既有筆記。
- * 找到就回傳相對路徑（相對於 VAULT_PATH），找不到回傳 null。
- * 每次即時掃描（不做常駐 cache）：筆記數量在幾百篇等級幾乎瞬間完成，
- * 這樣才不會跟使用者手動在 Obsidian 裡增刪筆記的狀態不同步。
+ * 掃描整個 vault，找出 frontmatter source/other_sources 跟傳入 urls 任何一個網址（正規化後）相符的既有筆記。
+ * 找到就回傳相對路徑，找不到回傳 null。
+ * 每次即時掃描（不做常駐 cache），才不會跟使用者手動在 Obsidian 裡增刪筆記的狀態不同步。
  */
 export function findDuplicateNote(urls) {
   if (!urls || urls.length === 0) return null;
   const normalizedTargets = new Set(urls.map(normalizeUrl).filter(Boolean));
   if (normalizedTargets.size === 0) return null;
 
-  const files = [];
-  listMdFiles(VAULT_PATH, files);
-
-  for (const full of files) {
-    let content;
-    try {
-      content = fs.readFileSync(full, "utf8");
-    } catch {
-      continue;
-    }
-    const sources = extractSources(content);
-    for (const s of sources) {
-      if (normalizedTargets.has(normalizeUrl(s))) {
-        return path.relative(VAULT_PATH, full);
-      }
-    }
-  }
-
-  return null;
+  const hit = vault.listNotes().find((note) => note.sources.some((s) => normalizedTargets.has(normalizeUrl(s))));
+  return hit ? hit.path : null;
 }

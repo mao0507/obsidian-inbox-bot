@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
+    "test": "node --test \"test/**/*.test.js\"",
     "vault:sync": "node scripts/git-sync.js",
     "notebook": "node scripts/notebook-research-cli.js",
     "notebooklm:login": "node scripts/notebooklm-login.js"

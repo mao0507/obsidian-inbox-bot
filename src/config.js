@@ -1,5 +1,4 @@
 import "dotenv/config";
-import path from "node:path";
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 
@@ -103,10 +102,6 @@ console.log(
     ? `[classifier] 使用本機 agent CLI「${AGENT_CLI_COMMAND}」做分類，不需要 API key`
     : `[classifier] 使用 Anthropic API（${CLAUDE_MODEL}）做分類`
 );
-
-export function vaultFilePath(...segments) {
-  return path.join(VAULT_PATH, ...segments);
-}
 
 // Git 自動同步：設定 VAULT_GIT_REMOTE 後，每次新增/搬移筆記都會自動
 // commit + push 到這個 remote。沒設定就完全不啟用，行為跟以前一樣。

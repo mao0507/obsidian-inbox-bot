@@ -1,7 +1,7 @@
 import path from "node:path";
 import { findUrls, fetchUrlContent } from "./extractContent.js";
 import { classifyAndDraft } from "./classify.js";
-import { writeNote } from "./writeNote.js";
+import { vault } from "./app.js";
 import { commitAndPush } from "./gitSync.js";
 import { findDuplicateNote } from "./duplicateCheck.js";
 import { syncRelatedNotes } from "./relatedNotes.js";
@@ -68,7 +68,7 @@ export async function processIncomingContent(rawText, sourceChannel) {
 
   const draft = await classifyAndDraft({ rawText: text, fetched, sourceChannel });
 
-  const result = writeNote({
+  const result = vault.writeNote({
     ...draft,
     sources: urls,
     sourceChannel,
@@ -110,7 +110,7 @@ export async function processNotebookResearch(topic, sourceChannel, { onStatus }
 
   const draft = await classifyAndDraft({ rawText, fetched: [], sourceChannel });
 
-  const result = writeNote({
+  const result = vault.writeNote({
     ...draft,
     sources: [],
     sourceChannel,
