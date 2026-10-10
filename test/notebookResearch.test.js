@@ -93,3 +93,37 @@ test("auth expired and every recovery fails: original auth error surfaces", asyn
   assert.equal(calls.filter((a) => a[0] === "auth").length, 2, "quiet refresh + browser-cookies");
   assert.ok(calls.some((a) => a[0] === "login"));
 });
+
+const plan = { question: "台灣離岸風電的發展瓶頸與機會", angles: ["政策與躉購費率", "供應鏈國產化", "併網與電網限制"] };
+
+test("with a plan: researches the plan question in deep mode, no AI brief needed", async () => {
+  const { run, calls } = fakeRun();
+  let asked = false;
+  const nb = createNotebookResearch({ run, ai: { ask: async () => ((asked = true), "x") } });
+
+  const result = await nb.researchTopic("離岸風電", { plan });
+
+  assert.equal(asked, false);
+  const research = calls.find((a) => a[1] === "add-research");
+  assert.equal(research[2], plan.question);
+  assert.equal(research[research.indexOf("--mode") + 1], "deep");
+  assert.equal(result.effectiveTopic, plan.question);
+});
+
+test("report is a custom zh_Hant report whose prompt walks through every planned angle", async () => {
+  let promptText = "";
+  const { run, calls } = fakeRun({
+    "generate report": (args) => {
+      promptText = fs.readFileSync(args[args.indexOf("--prompt-file") + 1], "utf8");
+      return "";
+    },
+  });
+  await createNotebookResearch({ run, ai: fakeAi() }).researchTopic("離岸風電", { plan });
+
+  const report = calls.find((a) => a[0] === "generate");
+  assert.equal(report[report.indexOf("--format") + 1], "custom");
+  assert.equal(report[report.indexOf("--language") + 1], "zh_Hant");
+  assert.match(promptText, /台灣離岸風電的發展瓶頸與機會/);
+  for (const angle of plan.angles) assert.ok(promptText.includes(angle), angle);
+  assert.match(promptText, /引用/);
+});

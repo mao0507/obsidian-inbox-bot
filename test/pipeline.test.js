@@ -28,14 +28,14 @@ function setup(options = {}) {
   return setupWith(createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "pipeline-test-"))), options);
 }
 
-function setupWith(vault, { aiDraft = draft, fetched = {}, gitResult = { attempted: false }, report } = {}) {
+function setupWith(vault, { aiDraft = draft, plan, fetched = {}, gitResult = { attempted: false }, report } = {}) {
   const calls = { askJson: [], fetch: [], git: [], research: [] };
   const ai = {
     name: "fake",
     ask: async () => "",
     askJson: async (input) => {
       calls.askJson.push(input);
-      return aiDraft;
+      return input.tool.name === "research_plan" ? plan : aiDraft;
     },
   };
   const fetcher = {
@@ -52,8 +52,9 @@ function setupWith(vault, { aiDraft = draft, fetched = {}, gitResult = { attempt
     },
   };
   const notebook = {
-    researchTopic: async (topic) => {
+    researchTopic: async (topic, options) => {
       calls.research.push(topic);
+      calls.researchOptions = options;
       return report;
     },
   };
@@ -121,7 +122,7 @@ test("notebook research: report drives the draft and note is saved", async () =>
   const out = await pipeline.processNotebookResearch("https://youtu.be/abc", "telegram-notebook");
 
   assert.deepEqual(calls.research, ["https://youtu.be/abc"]);
-  assert.match(calls.askJson[0].user, /研究主題：量子運算（使用者原始輸入：https:\/\/youtu.be\/abc）/);
+  assert.match(calls.askJson[0].user, /研究問題：量子運算（使用者原始輸入：https:\/\/youtu.be\/abc）/);
   assert.match(calls.askJson[0].user, /報告全文 XYZ/);
   assert.equal(out.notebookId, "nb1");
   assert.ok(vault.readNote(out.result.relativePath));
@@ -243,4 +244,46 @@ test("inbox notes have no tag folder", async () => {
   const { pipeline } = setup({ aiDraft: { ...draft, category: "收件匣", subcategory: "靈感", primary_tag: "" } });
   const out = await pipeline.processIncomingContent("突然想到", "telegram");
   assert.equal(out.draft.folder, "收件匣/靈感");
+});
+
+const researchPlan = { question: "台灣離岸風電的發展瓶頸", angles: ["政策", "供應鏈", "電網"] };
+
+test("planResearch: asks the AI for a question + angles, with linked page context", async () => {
+  const url = "https://example.com/wind";
+  const { calls, pipeline } = setup({
+    plan: researchPlan,
+    fetched: { [url]: { url, ok: true, title: "風電報導", text: "報導內文 QQQ", byline: "", excerpt: "" } },
+  });
+
+  const plan = await pipeline.planResearch(`研究這篇 ${url}`);
+
+  assert.deepEqual(plan, researchPlan);
+  assert.equal(calls.askJson[0].tool.name, "research_plan");
+  assert.match(calls.askJson[0].user, /風電報導[\s\S]*報導內文 QQQ/);
+});
+
+test("planResearch: user feedback and the previous plan go into the revision prompt", async () => {
+  const { calls, pipeline } = setup({ plan: researchPlan });
+  await pipeline.planResearch("離岸風電", { previous: researchPlan, feedback: "多看漁業衝突" });
+  assert.match(calls.askJson[0].user, /政策[\s\S]*多看漁業衝突/);
+});
+
+test("planResearch: an unusable plan is rejected", async () => {
+  const { pipeline } = setup({ plan: { question: "q", angles: [] } });
+  await assert.rejects(pipeline.planResearch("x"), /研究角度/);
+});
+
+test("research note keeps the plan, topic/notebook_id frontmatter and the full original report", async () => {
+  const { vault, calls, pipeline } = setup({
+    report: { notebookId: "nb9", reportText: "## 政策\n完整報告內容 [1]", effectiveTopic: researchPlan.question },
+  });
+
+  const out = await pipeline.processNotebookResearch("離岸風電", "telegram-notebook", { plan: researchPlan });
+  const note = vault.readNote(out.result.relativePath);
+
+  assert.deepEqual(calls.researchOptions.plan, researchPlan);
+  assert.match(calls.askJson[0].user, /1\. 政策[\s\S]*不要壓縮/);
+  assert.equal(note.frontmatter.topic, researchPlan.question);
+  assert.equal(note.frontmatter.notebook_id, "nb9");
+  assert.match(note.body, /> \[!note\]- 原始研究報告（NotebookLM）\n> ## 政策\n> 完整報告內容 \[1\]/);
 });

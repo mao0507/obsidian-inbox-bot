@@ -9,6 +9,7 @@ import { describeExistingFolders } from "./vaultScan.js";
 import { TAXONOMY, INBOX_FALLBACK, buildFolder } from "./taxonomy.js";
 import { createTagVocabulary } from "./tagVocabulary.js";
 import { planCards, renderCardSection, writeCards } from "./conceptCards.js";
+import { RESEARCH_PLAN_TOOL, buildPlanPrompts, validatePlan } from "./researchPlan.js";
 
 const MAX_URLS_PER_MESSAGE = 3;
 
@@ -81,7 +82,8 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     };
   }
 
-  async function draftAndSave({ rawText, fetched, sources, sourceChannel, type }) {
+  // extra：流程特有的 frontmatter（例如研究的 topic / notebook_id）；appendix：接在正文最後的區塊。
+  async function draftAndSave({ rawText, fetched, sources, sourceChannel, type, extra = {}, appendix = "" }) {
     // 每篇重新讀一次詞彙表與既有資料夾：使用者可能手動改過 tags.json 或搬過筆記。
     const vocab = createTagVocabulary(vault);
     const drafter = createNoteDrafter({
@@ -110,12 +112,13 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       published: source.published || draft.published,
       channel: source.channel,
       duration: source.duration,
-      body: [...warnings.map((w) => `> [!warning] ${w}`), draft.body, renderCardSection(cardPlan)]
+      body: [...warnings.map((w) => `> [!warning] ${w}`), draft.body, renderCardSection(cardPlan), appendix]
         .filter(Boolean)
         .join("\n\n"),
       cards: cardPlan.map((card) => card.name),
       sources,
       sourceChannel,
+      ...extra,
     };
     const result = vault.writeNote(note);
     let cards = [];
@@ -157,25 +160,54 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     /**
      * 主題 -> NotebookLM 研究產生報告 -> 交給同一套 AI 分類邏輯整理成筆記 -> 寫入 vault -> 收尾
      */
-    async processNotebookResearch(topic, sourceChannel, { onStatus } = {}) {
+    /**
+     * /notebook 送出後、真正開始研究前：把需求整理成「研究問題 + 研究角度」給使用者確認。
+     * 需求裡有網址時先抓網址內容當參考；previous + feedback 是使用者要求修改時的上一版計畫與修改意見。
+     */
+    async planResearch(topic, { previous, feedback } = {}) {
+      const cleanTopic = (topic || "").trim();
+      if (!cleanTopic) throw new Error("研究主題是空的");
+      const sources = [];
+      for (const url of findUrls(cleanTopic).slice(0, MAX_URLS_PER_MESSAGE)) {
+        // eslint-disable-next-line no-await-in-loop
+        sources.push(await fetcher.fetch(url));
+      }
+      const { system, user } = buildPlanPrompts({ topic: cleanTopic, sources, previous, feedback });
+      return validatePlan(await ai.askJson({ system, user, tool: RESEARCH_PLAN_TOOL }));
+    },
+
+    /**
+     * 主題（+ 使用者確認過的研究計畫）-> NotebookLM 研究產生報告 -> 整理成精讀筆記 -> 寫入 vault -> 收尾。
+     * 筆記依研究角度分章節、不壓縮；完整的原始報告摺疊附在文末，方便查證。
+     */
+    async processNotebookResearch(topic, sourceChannel, { plan, onStatus } = {}) {
       const cleanTopic = (topic || "").trim();
       if (!cleanTopic) throw new Error("研究主題是空的");
 
-      const { notebookId, reportText, effectiveTopic } = await notebook.researchTopic(cleanTopic, { onStatus });
-
-      // effectiveTopic 只有在使用者丟網址、且 NotebookLM 讀懂了來源內容時才會跟原始輸入不同，
-      // 兩者不同時都給分類 AI 看，分類判斷跟筆記標題會更準確。
-      const topicLine =
-        effectiveTopic && effectiveTopic !== cleanTopic
-          ? `研究主題：${effectiveTopic}（使用者原始輸入：${cleanTopic}）`
-          : `研究主題：${cleanTopic}`;
+      const { notebookId, reportText, effectiveTopic } = await notebook.researchTopic(cleanTopic, { plan, onStatus });
+      const question = plan?.question || effectiveTopic || cleanTopic;
+      const angles = plan?.angles?.length ? `研究角度：\n${plan.angles.map((a, i) => `${i + 1}. ${a}`).join("\n")}\n\n` : "";
 
       const rawText =
-        `${topicLine}\n\n` +
-        `以下是用 NotebookLM 針對這個主題做研究後產生的報告（NotebookLM notebook id: ${notebookId}，內容已含引用來源）：\n\n` +
+        `研究問題：${question}（使用者原始輸入：${cleanTopic}）\n\n${angles}` +
+        `以下是用 NotebookLM 研究後產生的報告（notebook id: ${notebookId}，內容含引用來源）。` +
+        "整理成精讀筆記時，content 依研究角度分章節，完整保留報告的所有內容、數據與案例，" +
+        "保留引用標記與來源清單，不要壓縮成摘要：\n\n" +
         reportText;
 
-      const saved = await draftAndSave({ rawText, fetched: [], sources: [], sourceChannel, type: "research" });
+      const saved = await draftAndSave({
+        rawText,
+        fetched: [],
+        sources: [],
+        sourceChannel,
+        type: "research",
+        extra: { topic: question, notebook_id: notebookId },
+        appendix: `> [!note]- 原始研究報告（NotebookLM）\n${reportText
+          .trim()
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n")}`,
+      });
       return { notebookId, ...saved };
     },
   };

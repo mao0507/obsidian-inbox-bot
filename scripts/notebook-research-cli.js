@@ -9,7 +9,7 @@
 //
 // 主要是給 .claude/skills/notebook-research/SKILL.md 呼叫用，讓 Claude Code
 // 也能觸發跟 Telegram bot 一樣的研究流程，不需要另外跑 Telegram。
-// 依主題複雜度、研究模式（NOTEBOOKLM_RESEARCH_MODE），這支腳本可能要跑幾十秒到
+// 研究一律用 deep research，依主題複雜度，這支腳本可能要跑幾分鐘到
 // 幾十分鐘，執行時請耐心等待，不要中途取消。
 import { pipeline } from "../src/app.js";
 import { NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "../src/config.js";

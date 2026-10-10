@@ -106,6 +106,29 @@ function toNotebookTitle(topic) {
   return topic.length > 100 ? `${topic.slice(0, 97)}...` : topic;
 }
 
+const REPORT_LANGUAGE = "zh_Hant";
+
+/** 給 NotebookLM 的報告提示：依研究計畫的每個角度寫一個詳細章節，事實附引用。 */
+export function buildReportPrompt({ question, angles = [] }) {
+  const outline = angles.length
+    ? `請依下列研究角度逐一撰寫獨立章節（每個角度一個 ## 章節，章節標題就是角度名稱）：\n${angles
+        .map((angle, i) => `${i + 1}. ${angle}`)
+        .join("\n")}`
+    : "請自行歸納 4~6 個最重要的面向，每個面向一個 ## 章節。";
+  return `請用繁體中文撰寫一份詳細的研究報告。
+
+研究問題：${question}
+
+${outline}
+
+每個章節都要：
+- 先寫這個角度的結論，再寫支持結論的具體細節：數據、時間點、案例、做法步驟、正反觀點
+- 每個事實都標註引用來源，報告最後列出完整的來源清單
+- 寫得完整詳細，不要只列重點或摘要
+
+最後加一節「## 綜合結論與建議」：整合各角度的發現，並指出資料不足或仍有爭議的地方。`;
+}
+
 // 短指令：搭配把使用者原始輸入從 stdin 餵進去的 CLI backend 一起用。
 const BRIEF_INSTRUCTION =
   "請根據上面由標準輸入提供的使用者原始需求，摘要成一段適合交給網路研究工具的清楚說明文字，只回傳摘要本身，不要前言或結語、不要條列、不要加引號。";
@@ -126,7 +149,7 @@ ${rawInput}
  * @param {"fast"|"deep"} [deps.researchMode]
  * @param {string} [deps.loginBrowser]  auth refresh --browser-cookies 用的瀏覽器，空字串 = 不嘗試
  */
-export function createNotebookResearch({ run, ai, researchMode = "fast", loginBrowser = "" }) {
+export function createNotebookResearch({ run, ai, researchMode = "deep", loginBrowser = "" }) {
   // 主題是網址時，光把網址本身當成後續網路研究/報告提示的查詢字串沒有意義。
   // 這裡先針對剛加進去的來源本身發問，請它一句話講出實際主題，換成這個描述再繼續。
   async function describeSource(notebookId, sourceId) {
@@ -186,14 +209,16 @@ export function createNotebookResearch({ run, ai, researchMode = "fast", loginBr
    * 全程用 -n <notebookId> 明確指定 notebook，不依賴 `notebooklm use` 的全域 active context，
    * 同時有兩個研究在跑也不會互相干擾。
    */
-  async function runResearchFlow(topic) {
+  async function runResearchFlow(topic, plan) {
     const embeddedUrls = findUrls(topic);
     // 「純網址」（整段輸入就是一個網址）跟「一句話裡面提到網址」要分開處理：
     // 後者除了網址本身要當來源之外，其餘文字也是使用者真正的意圖，不能丟掉。
     const isPureUrl = embeddedUrls.length === 1 && topic.trim() === embeddedUrls[0];
 
-    let effectiveTopic = topic;
-    if (!isPureUrl) {
+    // 有研究計畫（使用者在 Telegram 確認過的）就直接用計畫的研究問題；
+    // 沒有計畫（例如命令列腳本）才自己摘要模糊的輸入。
+    let effectiveTopic = plan?.question || topic;
+    if (!plan && !isPureUrl) {
       effectiveTopic = (await summarizeResearchBrief(topic)) || topic;
     }
 
@@ -209,7 +234,7 @@ export function createNotebookResearch({ run, ai, researchMode = "fast", loginBr
     if (isPureUrl) {
       // 主題本身就是一個網址（最常見是 YouTube 影片）：加為保證來源，並用來源本身的內容換掉 effectiveTopic。
       const sourceId = await addUrlSource(notebookId, embeddedUrls[0]);
-      if (sourceId) {
+      if (sourceId && !plan) {
         effectiveTopic = (await describeSource(notebookId, sourceId)) || effectiveTopic;
       }
     } else {
@@ -220,44 +245,55 @@ export function createNotebookResearch({ run, ai, researchMode = "fast", loginBr
       }
     }
 
-    // 自動研究並匯入來源（researchMode 預設 fast，deep 更完整但明顯更久，見 README）。
+    const reportText = await deepenAndReport(notebookId, { question: effectiveTopic, angles: plan?.angles || [] });
+    return { notebookId, reportText, effectiveTopic };
+  }
+
+  /**
+   * 在指定 notebook 上補跑一次網路研究（匯入找到的來源），再依研究問題與角度產生一份繁中詳細報告並下載。
+   * 新研究與「補充既有研究」都走這裡。
+   */
+  async function deepenAndReport(notebookId, { question, angles = [] }) {
     await run(
-      ["source", "add-research", effectiveTopic, "--mode", researchMode, "--import-all", "--cited-only", "-n", notebookId],
+      ["source", "add-research", question, "--mode", researchMode, "--import-all", "--cited-only", "-n", notebookId],
       { timeoutMs: RESEARCH_TIMEOUT_MS }
     );
 
+    // custom 格式才會照我們的大綱寫（briefing-doc 會忽略自訂說明）；--language 只影響這次產生，
+    // 不會動到帳號的全域語言設定。提示很長，用 --prompt-file 傳。
     // --retry 3：Google 偶爾回報暫時性速率限制，讓 CLI 自己指數退避重試。
-    await run(
-      [
-        "generate",
-        "report",
-        `針對「${effectiveTopic}」整理研究重點，附上引用來源`,
-        "--format",
-        "briefing-doc",
-        "--wait",
-        "--retry",
-        "3",
-        "-n",
-        notebookId,
-      ],
-      { timeoutMs: REPORT_TIMEOUT_MS }
-    );
-
-    // 下載到暫存檔讀出內容即可，真正的存檔目的地是 Obsidian vault（見 pipeline.js）。
-    const tmpPath = path.join(os.tmpdir(), `notebooklm-report-${notebookId}-${Date.now()}.md`);
-    await run(["download", "report", tmpPath, "-n", notebookId, "--force"]);
-
-    let reportText;
+    const stamp = `${notebookId}-${Date.now()}`;
+    const promptPath = path.join(os.tmpdir(), `notebooklm-prompt-${stamp}.txt`);
+    const reportPath = path.join(os.tmpdir(), `notebooklm-report-${stamp}.md`);
+    fs.writeFileSync(promptPath, buildReportPrompt({ question, angles }), "utf8");
     try {
-      reportText = fs.readFileSync(tmpPath, "utf8");
+      await run(
+        [
+          "generate",
+          "report",
+          "--format",
+          "custom",
+          "--prompt-file",
+          promptPath,
+          "--language",
+          REPORT_LANGUAGE,
+          "--wait",
+          "--retry",
+          "3",
+          "-n",
+          notebookId,
+        ],
+        { timeoutMs: REPORT_TIMEOUT_MS }
+      );
+      // 下載到暫存檔讀出內容即可，真正的存檔目的地是 Obsidian vault（見 pipeline.js）。
+      await run(["download", "report", reportPath, "-n", notebookId, "--force"]);
+      const reportText = fs.readFileSync(reportPath, "utf8");
+      if (!reportText.trim()) throw new Error("notebooklm 下載的報告內容是空的");
+      return reportText;
     } finally {
-      fs.rm(tmpPath, { force: true }, () => {});
+      fs.rmSync(promptPath, { force: true });
+      fs.rmSync(reportPath, { force: true });
     }
-    if (!reportText.trim()) {
-      throw new Error("notebooklm 下載的報告內容是空的");
-    }
-
-    return { notebookId, reportText, effectiveTopic };
   }
 
   // 兩段式自動修復登入 session，都不需要開互動視窗：
@@ -296,16 +332,16 @@ export function createNotebookResearch({ run, ai, researchMode = "fast", loginBr
      * 每一步成功就重試一次整個研究流程；都失敗才把 NotebookAuthExpiredError 丟出去。
      * onStatus（可選）：每個自動修復步驟開始時呼叫一次，讓呼叫端即時更新 Telegram 訊息。
      */
-    async researchTopic(topic, { onStatus } = {}) {
+    async researchTopic(topic, { plan, onStatus } = {}) {
       try {
-        return await runResearchFlow(topic);
+        return await runResearchFlow(topic, plan);
       } catch (err) {
         if (!(err instanceof NotebookAuthExpiredError)) throw err;
 
         console.warn("[notebooklm] 偵測到登入過期，自動嘗試 auth refresh 後重試一次...");
         onStatus?.("🔑 偵測到 NotebookLM 登入過期，嘗試自動 refresh 登入狀態...");
         if (await tryAuthRefresh()) {
-          return runResearchFlow(topic);
+          return runResearchFlow(topic, plan);
         }
 
         console.warn("[notebooklm] auth refresh 沒用，改嘗試完整的 notebooklm login...");
@@ -318,7 +354,7 @@ export function createNotebookResearch({ run, ai, researchMode = "fast", loginBr
         }
 
         onStatus?.("✅ 重新登入成功，重新開始研究任務...");
-        return runResearchFlow(topic);
+        return runResearchFlow(topic, plan);
       }
     },
 

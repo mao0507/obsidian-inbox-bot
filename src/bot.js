@@ -1,9 +1,10 @@
-import { Telegraf } from "telegraf";
+import { Telegraf, Markup } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "./config.js";
 import { answerFromVault } from "./askVault.js";
 import { notebook, pipeline } from "./app.js";
 import { createTaskQueue } from "./taskQueue.js";
 import { renderFolderView, renderNoteView, resolveBrowseToken } from "./browseView.js";
+import { formatPlan } from "./researchPlan.js";
 
 function isAllowed(userId) {
   // 白名單留空 = 不限制任何人（見啟動時的警告訊息）
@@ -78,12 +79,12 @@ const researchLane = createTaskQueue();
  * 完成或失敗時發一則新訊息（回覆使用者原本那則，會推播），並刪掉中間的狀態訊息。
  * run(statusMsg) 可以拿 statusMsg 即時改寫進度（例如 NotebookLM 自動重新登入）。
  */
-async function runQueued(ctx, lane, { startText, run, formatDone, failPrefix }) {
+async function runQueued(ctx, lane, { startText, run, formatDone, failPrefix, replyTo = ctx.message?.message_id }) {
   const ahead = lane.size();
   const statusMsg = await ctx.reply(
     ahead > 0 ? `📋 已收到，排第 ${ahead + 1} 個（前面還有 ${ahead} 個），輪到時會開始處理，完成後通知你。` : startText
   );
-  const replyToUser = { reply_parameters: { message_id: ctx.message.message_id } };
+  const replyToUser = replyTo ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } } : {};
 
   inBackground(async () => {
     let stopTyping = () => {};
@@ -101,6 +102,38 @@ async function runQueued(ctx, lane, { startText, run, formatDone, failPrefix }) 
     } finally {
       stopTyping();
       await ctx.deleteMessage(statusMsg.message_id).catch(() => {});
+    }
+  });
+}
+
+// /notebook 的研究計畫：送出後先回一份計畫給使用者確認，按「開始」才排進研究佇列（確認前不佔佇列）。
+// 以計畫訊息的 message id 為 key；純記憶體，bot 重啟後舊按鈕會回覆「已過期」。
+// ponytail: 沒按的計畫不會被清掉，一天幾則的量不需要；量大再加 TTL。
+const pendingPlans = new Map(); // planMessageId -> { topic, plan, userMessageId }
+
+const planKeyboard = (planMessageId) =>
+  Markup.inlineKeyboard([
+    [
+      Markup.button.callback("▶️ 開始研究", `np|start|${planMessageId}`),
+      Markup.button.callback("✏️ 修改", `np|edit|${planMessageId}`),
+      Markup.button.callback("✖️ 取消", `np|cancel|${planMessageId}`),
+    ],
+  ]);
+
+const planMessageText = (plan) =>
+  `🧭 研究計畫（deep research，可能要幾分鐘到半小時）\n\n${formatPlan(plan)}\n\n` +
+  "沒問題就按「開始研究」；想調整方向就直接回覆這則訊息寫下你的想法。";
+
+// 產生（或依修改意見重新產生）研究計畫，顯示在 planMsg 上並附按鈕。
+function showPlan(ctx, planMsg, { topic, userMessageId, previous, feedback }) {
+  inBackground(async () => {
+    try {
+      const plan = await pipeline.planResearch(topic, { previous, feedback });
+      pendingPlans.set(planMsg.message_id, { topic, plan, userMessageId });
+      await ctx.telegram.editMessageText(ctx.chat.id, planMsg.message_id, undefined, planMessageText(plan), planKeyboard(planMsg.message_id));
+    } catch (err) {
+      console.error(err);
+      await editStatus(ctx, planMsg, `❌ 規劃研究方向失敗：${String(err?.message || err)}`);
     }
   });
 }
@@ -201,16 +234,47 @@ export function startBot() {
       return;
     }
 
+    const planMsg = await ctx.reply("🧭 正在規劃研究方向...");
+    showPlan(ctx, planMsg, { topic, userMessageId: ctx.message.message_id });
+  });
+
+  // 研究計畫的按鈕：np|start|<計畫訊息 id>、np|edit|...、np|cancel|...
+  bot.action(/^np\|(start|edit|cancel)\|(\d+)$/, async (ctx) => {
+    const [, action, id] = ctx.match;
+    const planMessageId = Number(id);
+    const entry = pendingPlans.get(planMessageId);
+    if (!entry) {
+      await ctx.answerCbQuery("這份研究計畫已經過期或處理過了，請重新 /notebook", { show_alert: true }).catch(() => {});
+      return;
+    }
+    const planMsg = { message_id: planMessageId };
+
+    if (action === "edit") {
+      await ctx.answerCbQuery("直接「回覆」這則研究計畫訊息，寫下想調整的方向", { show_alert: true }).catch(() => {});
+      return;
+    }
+
+    pendingPlans.delete(planMessageId);
+    await ctx.answerCbQuery().catch(() => {});
+    if (action === "cancel") {
+      await editStatus(ctx, planMsg, `✖️ 已取消研究\n\n${formatPlan(entry.plan)}`);
+      return;
+    }
+
+    const { topic, plan, userMessageId } = entry;
+    await editStatus(ctx, planMsg, `▶️ 已開始研究\n\n${formatPlan(plan)}`);
     await runQueued(ctx, researchLane, {
-      startText: `🧪 開始用 NotebookLM 研究「${topic}」，依複雜度可能要幾分鐘，請稍候...`,
+      replyTo: userMessageId,
+      startText: `🧪 開始用 NotebookLM 研究「${plan.question}」，可能要幾分鐘到半小時，完成後會通知你...`,
       run: (statusMsg) =>
         pipeline.processNotebookResearch(topic, "telegram-notebook", {
+          plan,
           // 登入過期時 notebookResearch.js 會自動嘗試 refresh / login 重新登入，
           // 每個步驟的狀態即時改到狀態訊息上，讓使用者知道不是卡住。
           onStatus: (text) => editStatus(ctx, statusMsg, text),
         }),
-      formatDone: (outcome) => formatSavedReply("✅ 研究完成，已存進 Obsidian", outcome, [`主題：${topic}`]),
-      failPrefix: `❌ 研究「${topic}」失敗`,
+      formatDone: (outcome) => formatSavedReply("✅ 研究完成，已存進 Obsidian", outcome, [`研究問題：${plan.question}`]),
+      failPrefix: `❌ 研究「${plan.question}」失敗`,
     });
   });
 
@@ -270,6 +334,18 @@ export function startBot() {
   bot.on("text", async (ctx) => {
     const text = ctx.message.text;
     if (text.startsWith("/")) return; // 忽略其他指令
+
+    // 回覆研究計畫訊息 = 修改研究方向，不是要收件
+    const repliedPlanId = ctx.message.reply_to_message?.message_id;
+    const pending = repliedPlanId && pendingPlans.get(repliedPlanId);
+    if (pending) {
+      const planMsg = { message_id: repliedPlanId };
+      await ctx.telegram
+        .editMessageText(ctx.chat.id, repliedPlanId, undefined, `🧭 依你的意見重新規劃中...\n\n${formatPlan(pending.plan)}`)
+        .catch(() => {});
+      showPlan(ctx, planMsg, { ...pending, previous: pending.plan, feedback: text });
+      return;
+    }
 
     await runQueued(ctx, intakeLane, {
       startText: "🔎 收到，處理中...",

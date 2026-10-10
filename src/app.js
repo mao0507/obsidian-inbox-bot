@@ -8,7 +8,6 @@ import {
   ANTHROPIC_API_KEY,
   CLAUDE_MODEL,
   NOTEBOOKLM_COMMAND,
-  NOTEBOOKLM_RESEARCH_MODE,
   NOTEBOOKLM_LOGIN_BROWSER,
   YTDLP_COMMAND,
 } from "./config.js";
@@ -31,7 +30,6 @@ export const ai =
 export const notebook = createNotebookResearch({
   run: createNotebookLmRunner(NOTEBOOKLM_COMMAND),
   ai,
-  researchMode: NOTEBOOKLM_RESEARCH_MODE,
   loginBrowser: NOTEBOOKLM_LOGIN_BROWSER,
 });
 
