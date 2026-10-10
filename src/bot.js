@@ -1,10 +1,10 @@
-import { Telegraf, Markup } from "telegraf";
+import { Telegraf } from "telegraf";
 import { TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "./config.js";
 import { processIncomingContent, processNotebookResearch } from "./pipeline.js";
 import { answerFromVault } from "./askVault.js";
 import { notebook } from "./app.js";
 import { enqueueTask, queuePendingCount, isProcessing } from "./taskQueue.js";
-import { listFolder, readNote } from "./vaultBrowser.js";
+import { renderFolderView, renderNoteView, resolveBrowseToken } from "./browseView.js";
 
 function isAllowed(userId) {
   // 白名單留空 = 不限制任何人（見啟動時的警告訊息）
@@ -12,129 +12,36 @@ function isAllowed(userId) {
   return TELEGRAM_ALLOWED_USER_IDS.includes(userId);
 }
 
-function formatGitStatusLine(gitResult) {
-  if (!gitResult || !gitResult.attempted) return null; // 沒設定 VAULT_GIT_REMOTE，不顯示這行
-  if (gitResult.pushed) return "🔄 已同步到 Git";
-  if (gitResult.skipped) return null; // 沒有新異動可 commit，沒什麼好講的
-  return `⚠️ Git 同步失敗：${gitResult.error || "未知錯誤"}（筆記已正常存進 Obsidian，只是還沒推上 git）`;
+// 一般內容跟 /notebook 研究存檔完成後共用的回覆內容。extraLines 會插在標題下面（例如研究主題）。
+function formatSavedReply(header, { draft, result, notebookId, relatedResult, mocResult, gitResult }, extraLines = []) {
+  const gitLine = !gitResult?.attempted || gitResult.skipped // 沒設定 VAULT_GIT_REMOTE、或沒有新異動可 commit
+    ? null
+    : gitResult.pushed
+      ? "🔄 已同步到 Git"
+      : `⚠️ Git 同步失敗：${gitResult.error || "未知錯誤"}（筆記已正常存進 Obsidian，只是還沒推上 git）`;
+
+  return [
+    header,
+    ...extraLines,
+    `標題：${draft.title}`,
+    `資料夾：${draft.folder}`,
+    `檔名：${result.relativePath}`,
+    draft.summary ? `摘要：${draft.summary}` : null,
+    draft.tags?.length ? draft.tags.map((t) => `#${t}`).join(" ") : null,
+    notebookId ? `📓 NotebookLM notebook id：${notebookId}` : null,
+    relatedResult?.linkedCount ? `🔗 已跟 ${relatedResult.linkedCount} 篇既有筆記互相補上關聯連結` : null,
+    mocResult?.updated ? `🗺️ 已更新「${mocResult.mocPath}」分類地圖` : null,
+    gitLine,
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
-function formatRelatedStatusLine(relatedResult) {
-  if (!relatedResult || !relatedResult.linkedCount) return null;
-  return `🔗 已跟 ${relatedResult.linkedCount} 篇既有筆記互相補上關聯連結`;
-}
-
-function formatMocStatusLine(mocResult) {
-  if (!mocResult || !mocResult.updated) return null;
-  return `🗺️ 已更新「${mocResult.mocPath}」分類地圖`;
-}
-
-function formatNotebookIdLine(notebookId) {
-  if (!notebookId) return null;
-  return `📓 NotebookLM notebook id：${notebookId}`;
-}
-
-// /browse 用的導覽狀態：Telegram inline button 的 callback_data 上限 64 bytes，
-// 中文路徑（例如 "AI/ClaudeCode/教學文章"）動不動就超過，沒辦法把完整路徑塞進去，
-// 所以改成「產生一個短 token 對應到實際路徑片段陣列」，callback_data 只帶 token。
-// 純記憶體對照表，bot 重啟會清空（沒關係，舊按鈕原本就會失效，使用者重新 /browse 即可）；
-// 用陣列額外記住插入順序，超過上限就從最舊的開始丟，避免長時間跑下來無限長大。
-const BROWSE_TOKEN_LIMIT = 3000;
-const browseTokens = new Map();
-const browseTokenOrder = [];
-let browseTokenSeq = 0;
-
-function makeBrowseToken(segments) {
-  const token = (browseTokenSeq++).toString(36);
-  browseTokens.set(token, segments);
-  browseTokenOrder.push(token);
-  if (browseTokenOrder.length > BROWSE_TOKEN_LIMIT) {
-    const oldest = browseTokenOrder.shift();
-    browseTokens.delete(oldest);
-  }
-  return token;
-}
-
-function resolveBrowseToken(token) {
-  return browseTokens.get(token) ?? null;
-}
-
-const BROWSE_NOTES_PAGE_SIZE = 8;
-const BROWSE_LABEL_MAX_LEN = 40;
-
-function truncateLabel(name) {
-  return name.length > BROWSE_LABEL_MAX_LEN ? `${name.slice(0, BROWSE_LABEL_MAX_LEN - 1)}…` : name;
-}
-
-// 畫出某個分類（資料夾）目前的子分類 + 直接放在這一層的筆記，回傳文字內容跟 inline keyboard。
-// segments=[] 代表分類總覽（vault 根目錄下的所有頂層分類）。
-function renderFolderView(segments, notesPage = 0) {
-  const { subfolders, notes } = listFolder(segments);
-  const label = segments.join(" / ");
-  const totalNotes = notes.length + subfolders.reduce((sum, f) => sum + f.noteCount, 0);
-
-  const lines = [segments.length ? `📂 ${label}（共 ${totalNotes} 篇筆記）` : `📚 目前的分類（共 ${totalNotes} 篇筆記）`];
-  if (!subfolders.length && !notes.length) {
-    lines.push("這裡目前是空的。");
-  } else if (subfolders.length) {
-    lines.push("點下面的按鈕繼續往下查詢子分類或文章：");
-  }
-
-  const rows = [];
-  for (const folder of subfolders) {
-    const token = makeBrowseToken(folder.segments);
-    rows.push([Markup.button.callback(`📁 ${truncateLabel(folder.name)}（${folder.noteCount}）`, `bf|${token}`)]);
-  }
-
-  const pageStart = notesPage * BROWSE_NOTES_PAGE_SIZE;
-  const pageNotes = notes.slice(pageStart, pageStart + BROWSE_NOTES_PAGE_SIZE);
-  for (const note of pageNotes) {
-    const token = makeBrowseToken(note.segments);
-    rows.push([Markup.button.callback(`📄 ${truncateLabel(note.name)}`, `bn|${token}`)]);
-  }
-
-  if (notes.length > BROWSE_NOTES_PAGE_SIZE) {
-    const folderToken = makeBrowseToken(segments);
-    const pagerRow = [];
-    if (notesPage > 0) pagerRow.push(Markup.button.callback("⬅️ 上一頁", `bp|${folderToken}|${notesPage - 1}`));
-    if (pageStart + BROWSE_NOTES_PAGE_SIZE < notes.length) {
-      pagerRow.push(Markup.button.callback("下一頁 ➡️", `bp|${folderToken}|${notesPage + 1}`));
-    }
-    if (pagerRow.length) rows.push(pagerRow);
-  }
-
-  const navRow = [];
-  if (segments.length > 0) {
-    const parentToken = makeBrowseToken(segments.slice(0, -1));
-    navRow.push(Markup.button.callback("⬅️ 上一層", `bf|${parentToken}`));
-    const rootToken = makeBrowseToken([]);
-    navRow.push(Markup.button.callback("🏠 分類總覽", `bf|${rootToken}`));
-  }
-  if (navRow.length) rows.push(navRow);
-
-  return { text: lines.join("\n"), keyboard: Markup.inlineKeyboard(rows) };
-}
-
-// 畫出單篇筆記的詳細內容（標題、摘要、標籤、路徑、內文預覽）跟一個返回分類的按鈕。
-function renderNoteView(segments) {
-  const note = readNote(segments);
-  const relPath = segments.join("/");
-  const bodyPreview =
-    note.body && note.body.length > 800 ? `${note.body.slice(0, 800)}…\n\n（內容太長，完整版請到 Obsidian 打開）` : note.body;
-
-  const lines = [
-    `📄 ${note.title || relPath}`,
-    note.summary ? `摘要：${note.summary}` : null,
-    note.tags?.length ? note.tags.map((t) => `#${t}`).join(" ") : null,
-    `路徑：${relPath}`,
-    "",
-    bodyPreview || "（沒有內文）",
-  ].filter((line) => line !== null);
-
-  const parentToken = makeBrowseToken(segments.slice(0, -1));
-  const keyboard = Markup.inlineKeyboard([[Markup.button.callback("⬅️ 返回分類", `bf|${parentToken}`)]]);
-
-  return { text: lines.join("\n"), keyboard };
+// 改寫同一則「處理中」訊息的內容（狀態更新、完成、失敗都用這個）。
+function editStatus(ctx, msg, text) {
+  return ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, text).catch((err) => {
+    console.warn(`[telegram] 更新訊息失敗：${err.message}`);
+  });
 }
 
 // 幫處理中的訊息掛上持續的「正在輸入...」動畫，回傳一個 stop() 可以在處理完後呼叫清掉計時器。
@@ -217,15 +124,10 @@ export function startBot() {
     try {
       const { answer, matchedCount } = await answerFromVault(question);
       const footer = matchedCount > 0 ? `\n\n（搜尋了 ${matchedCount} 篇相關筆記）` : "";
-      await ctx.telegram.editMessageText(ctx.chat.id, processingMsg.message_id, undefined, `${answer}${footer}`);
+      await editStatus(ctx, processingMsg, `${answer}${footer}`);
     } catch (err) {
       console.error(err);
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        processingMsg.message_id,
-        undefined,
-        `❌ 查詢失敗：${String(err?.message || err)}`
-      );
+      await editStatus(ctx, processingMsg, `❌ 查詢失敗：${String(err?.message || err)}`);
     } finally {
       stopTyping();
     }
@@ -252,71 +154,37 @@ export function startBot() {
     // 排隊位置：如果現在有任務正在跑，這則新任務至少要等它跑完；
     // pending 是「還沒開始執行」的既有任務數，兩者加起來才是這則新任務前面總共有幾個。
     const aheadCount = queuePendingCount() + (isProcessing() ? 1 : 0);
+    const startingText = `🧪 開始用 NotebookLM 研究「${topic}」，依複雜度可能要幾分鐘，請稍候...`;
     const processingMsg = await ctx.reply(
       aheadCount > 0
         ? `📋 已加入研究佇列（前面還有 ${aheadCount} 個任務在排隊），輪到你的時候會開始處理，完成後會通知你。`
-        : `🧪 開始用 NotebookLM 研究「${topic}」，依複雜度可能要幾分鐘，請稍候...`
+        : startingText
     );
 
     let stopTyping = () => {};
 
     try {
-      const { draft, result, notebookId, gitResult, relatedResult, mocResult } = await enqueueTask(
+      const outcome = await enqueueTask(
         () =>
           processNotebookResearch(topic, "telegram-notebook", {
             // 登入過期時 notebookResearch.js 會自動嘗試 refresh / login 重新登入，
             // 這裡把每個步驟的狀態即時改到同一則處理中訊息上，讓使用者知道不是卡住。
-            onStatus: (text) => {
-              ctx.telegram.editMessageText(ctx.chat.id, processingMsg.message_id, undefined, text).catch(() => {});
-            },
+            onStatus: (text) => editStatus(ctx, processingMsg, text),
           }),
         {
           onStart: async () => {
             stopTyping = startTypingLoop(ctx);
             // 排隊時發過一則「已加入佇列」的訊息，真正輪到它開始跑的時候換成處理中的訊息；
             // 沒排隊、直接開始執行的話上面那則本來就已經是這句了，不用重複編輯。
-            if (aheadCount > 0) {
-              await ctx.telegram
-                .editMessageText(
-                  ctx.chat.id,
-                  processingMsg.message_id,
-                  undefined,
-                  `🧪 開始用 NotebookLM 研究「${topic}」，依複雜度可能要幾分鐘，請稍候...`
-                )
-                .catch(() => {});
-            }
+            if (aheadCount > 0) await editStatus(ctx, processingMsg, startingText);
           },
         }
       );
 
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        processingMsg.message_id,
-        undefined,
-        [
-          "✅ 研究完成，已存進 Obsidian",
-          `主題：${topic}`,
-          `標題：${draft.title}`,
-          `資料夾：${draft.folder}`,
-          `檔名：${result.relativePath}`,
-          draft.summary ? `摘要：${draft.summary}` : null,
-          draft.tags?.length ? draft.tags.map((t) => `#${t}`).join(" ") : null,
-          formatNotebookIdLine(notebookId),
-          formatRelatedStatusLine(relatedResult),
-          formatMocStatusLine(mocResult),
-          formatGitStatusLine(gitResult),
-        ]
-          .filter(Boolean)
-          .join("\n")
-      );
+      await editStatus(ctx, processingMsg, formatSavedReply("✅ 研究完成，已存進 Obsidian", outcome, [`主題：${topic}`]));
     } catch (err) {
       console.error(err);
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        processingMsg.message_id,
-        undefined,
-        `❌ 研究失敗：${String(err?.message || err)}`
-      );
+      await editStatus(ctx, processingMsg, `❌ 研究失敗：${String(err?.message || err)}`);
     } finally {
       stopTyping();
     }
@@ -335,9 +203,9 @@ export function startBot() {
 
     try {
       const output = await notebook.login();
-      await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `✅ 登入完成\n\n${output.trim().slice(-3000) || "(無輸出)"}`).catch(() => {});
+      await editStatus(ctx, msg, `✅ 登入完成\n\n${output.trim().slice(-3000) || "(無輸出)"}`);
     } catch (err) {
-      await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, `❌ 登入失敗：${err.message}`).catch(() => {});
+      await editStatus(ctx, msg, `❌ 登入失敗：${err.message}`);
     }
   });
 
@@ -348,46 +216,29 @@ export function startBot() {
     await ctx.reply(text, keyboard);
   });
 
-  // bf = browse folder：切換到某個資料夾的畫面（子分類 + 直接放在這層的筆記第一頁）。
-  bot.action(/^bf\|(.+)$/, async (ctx) => {
-    const segments = resolveBrowseToken(ctx.match[1]);
-    if (segments === null) {
-      await ctx.answerCbQuery("這個按鈕過期了，請重新 /browse 一次", { show_alert: true }).catch(() => {});
-      return;
-    }
-    const { text, keyboard } = renderFolderView(segments);
-    await ctx.editMessageText(text, keyboard).catch(() => {});
-    await ctx.answerCbQuery().catch(() => {});
-  });
-
-  // bp = browse page：同一個資料夾，換一頁筆記清單。
-  bot.action(/^bp\|([^|]+)\|(\d+)$/, async (ctx) => {
-    const segments = resolveBrowseToken(ctx.match[1]);
-    if (segments === null) {
-      await ctx.answerCbQuery("這個按鈕過期了，請重新 /browse 一次", { show_alert: true }).catch(() => {});
-      return;
-    }
-    const { text, keyboard } = renderFolderView(segments, Number(ctx.match[2]));
-    await ctx.editMessageText(text, keyboard).catch(() => {});
-    await ctx.answerCbQuery().catch(() => {});
-  });
-
-  // bn = browse note：點進某篇筆記看內容預覽。
-  bot.action(/^bn\|(.+)$/, async (ctx) => {
-    const segments = resolveBrowseToken(ctx.match[1]);
-    if (segments === null) {
-      await ctx.answerCbQuery("這個按鈕過期了，請重新 /browse 一次", { show_alert: true }).catch(() => {});
-      return;
-    }
-    try {
-      const { text, keyboard } = renderNoteView(segments);
-      await ctx.editMessageText(text, keyboard).catch(() => {});
-      await ctx.answerCbQuery().catch(() => {});
-    } catch (err) {
-      console.error(err);
-      await ctx.answerCbQuery(`讀取筆記失敗：${String(err?.message || err)}`, { show_alert: true }).catch(() => {});
-    }
-  });
+  // /browse 的按鈕：bf = 切換到某個資料夾、bp = 同資料夾換一頁筆記、bn = 點進某篇筆記看內容預覽。
+  const browseActions = [
+    [/^bf\|(.+)$/, (segments) => renderFolderView(segments)],
+    [/^bp\|([^|]+)\|(\d+)$/, (segments, match) => renderFolderView(segments, Number(match[2]))],
+    [/^bn\|(.+)$/, (segments) => renderNoteView(segments)],
+  ];
+  for (const [pattern, render] of browseActions) {
+    bot.action(pattern, async (ctx) => {
+      const segments = resolveBrowseToken(ctx.match[1]);
+      if (segments === null) {
+        await ctx.answerCbQuery("這個按鈕過期了，請重新 /browse 一次", { show_alert: true }).catch(() => {});
+        return;
+      }
+      try {
+        const { text, keyboard } = render(segments, ctx.match);
+        await ctx.editMessageText(text, keyboard).catch(() => {});
+        await ctx.answerCbQuery().catch(() => {});
+      } catch (err) {
+        console.error(err);
+        await ctx.answerCbQuery(`讀取失敗：${String(err?.message || err)}`, { show_alert: true }).catch(() => {});
+      }
+    });
+  }
 
   bot.on("text", async (ctx) => {
     const text = ctx.message.text;
@@ -400,49 +251,25 @@ export function startBot() {
     const stopTyping = startTypingLoop(ctx);
 
     try {
-      const { duplicate, duplicatePath, draft, result, gitResult, relatedResult, mocResult } =
-        await processIncomingContent(text, "telegram");
+      const outcome = await processIncomingContent(text, "telegram");
 
-      if (duplicate) {
-        await ctx.telegram.editMessageText(
-          ctx.chat.id,
-          processingMsg.message_id,
-          undefined,
+      if (outcome.duplicate) {
+        await editStatus(
+          ctx,
+          processingMsg,
           [
             "📎 這篇文章已經存過了，沒有建立新筆記。",
-            `既有筆記：${duplicatePath}`,
+            `既有筆記：${outcome.duplicatePath}`,
             "如果確定要重複建立，把連結後面加個字或不同網址再丟一次即可。",
           ].join("\n")
         );
         return;
       }
 
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        processingMsg.message_id,
-        undefined,
-        [
-          "✅ 已存進 Obsidian",
-          `標題：${draft.title}`,
-          `資料夾：${draft.folder}`,
-          `檔名：${result.relativePath}`,
-          draft.summary ? `摘要：${draft.summary}` : null,
-          draft.tags?.length ? draft.tags.map((t) => `#${t}`).join(" ") : null,
-          formatRelatedStatusLine(relatedResult),
-          formatMocStatusLine(mocResult),
-          formatGitStatusLine(gitResult),
-        ]
-          .filter(Boolean)
-          .join("\n")
-      );
+      await editStatus(ctx, processingMsg, formatSavedReply("✅ 已存進 Obsidian", outcome));
     } catch (err) {
       console.error(err);
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        processingMsg.message_id,
-        undefined,
-        `❌ 處理失敗：${String(err?.message || err)}`
-      );
+      await editStatus(ctx, processingMsg, `❌ 處理失敗：${String(err?.message || err)}`);
     } finally {
       stopTyping();
     }
