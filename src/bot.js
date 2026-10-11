@@ -7,9 +7,10 @@ import {
   YTDLP_ENABLED,
 } from "./config.js";
 import { answerFromVault } from "./askVault.js";
-import { notebook, pipeline, vault, migration } from "./app.js";
+import { notebook, pipeline, vault, migration, ai } from "./app.js";
 import { commitAndPush } from "./gitSync.js";
 import { registerAdminCommands } from "./botAdmin.js";
+import { registerVaultToolCommands } from "./botVaultTools.js";
 import { createTaskQueue } from "./taskQueue.js";
 import { renderFolderView, renderNoteView, resolveBrowseToken } from "./browseView.js";
 import { formatPlan } from "./researchPlan.js";
@@ -193,6 +194,7 @@ export function startBot() {
         "想從已經存進去的筆記裡查資料，用 /ask 加上你的問題，例如：",
         "/ask 北海道有什麼景點",
         "想看目前有哪些分類、點進去瀏覽文章，用 /browse。",
+        "整理：/cards 合併重複的概念卡、/tags 看與合併 tag。",
         "管理：/status 看狀態、/sync 同步 git、/logs 看 log、/restart 重啟、/migrate 舊筆記重建。",
         NOTEBOOKLM_ENABLED
           ? "想針對一個主題做真正的網路研究（不是查現有筆記，是查新資料），用 /notebook 加上主題，例如：\n/notebook 台灣離岸風電現況"
@@ -365,6 +367,7 @@ export function startBot() {
     commitAndPush,
     tools: { notebooklm: NOTEBOOKLM_ENABLED, ytdlp: YTDLP_ENABLED },
   });
+  registerVaultToolCommands(bot, { vault, ai, intakeLane, runQueued, inBackground, editStatus, commitAndPush });
 
   bot.on("text", async (ctx) => {
     const text = ctx.message.text;
@@ -406,6 +409,8 @@ export function startBot() {
     ...(NOTEBOOKLM_ENABLED
       ? [{ command: "notebook", description: "用 NotebookLM 做研究，存進 Obsidian" }]
       : []),
+    { command: "cards", description: "找出並合併重複的概念卡" },
+    { command: "tags", description: "看 tag 使用量、合併重複的 tag" },
     { command: "status", description: "目前狀態：佇列、筆記數、重建進度" },
     { command: "sync", description: "立刻把 vault 同步到 git" },
     { command: "logs", description: "最近的 log（/logs error 只看錯誤）" },

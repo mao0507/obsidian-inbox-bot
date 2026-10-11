@@ -85,6 +85,14 @@ export function createTagVocabulary(vault) {
       return { tags: result, created };
     },
 
+    /** 把 from 這個 tag 併進 into：from 與它的別名都變成 into 的別名，之後寫 from 會自動變成 into。 */
+    mergeInto(from, into) {
+      const { [from]: fromAliases = [], ...rest } = tags;
+      tags = { ...rest, [into]: [...new Set([...(rest[into] || []), from, ...fromAliases])] };
+      index = buildIndex(tags);
+      save();
+    },
+
     /** 查標準寫法，不建立新 tag；找不到回傳 null（概念卡比對名稱時用）。 */
     lookup(name) {
       return index.get(tagKey(cleanTag(name))) || null;

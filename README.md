@@ -144,6 +144,24 @@ pnpm dev
 
 CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON）時，那一則內容會回傳錯誤訊息，不會生成筆記，可以直接重送一次。
 
+## Telegram 指令一覽
+
+| 指令 | 用途 |
+|---|---|
+| （直接傳文字或網址） | 整理成精讀筆記存進 vault |
+| `/ask 問題` | 從已存的筆記找資料回答 |
+| `/browse` | 瀏覽分類與筆記 |
+| `/notebook 主題` | NotebookLM 深度研究（先確認研究計畫） |
+| `/cards` | AI 找出重複的概念卡，每組按「合併／略過」 |
+| `/tags` | 看 tag 使用量；`/tags merge 舊 新` 把一個 tag 併進另一個（搬資料夾、改連結、舊名變別名） |
+| `/status` | 佇列、vault 筆記數、工具、舊筆記重建進度 |
+| `/sync` | 立刻把 vault 同步到 git |
+| `/logs` | 最近 30 行 log（`/logs error` 只看錯誤；需用 pm2 執行） |
+| `/restart` | 重新啟動 bot（pm2 會自動帶回來；佇列有任務時要 `/restart force`） |
+| `/migrate` | 舊筆記重建進度；`/migrate retry` 重跑失敗的組、`/migrate finalize` 收尾已完成的組 |
+| `/notebooklm_login` | 在跑 bot 的電腦上開瀏覽器重新登入 NotebookLM |
+| `/whoami` | 查自己的 Telegram user ID |
+
 ## 從已收錄的筆記查詢資料（/ask）
 
 不是要新增筆記，而是想問「我之前存過的東西裡有沒有相關資料」，在 Telegram 用：

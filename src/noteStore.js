@@ -172,6 +172,26 @@ function parseNote(relPath, raw) {
   };
 }
 
+/**
+ * 改寫 frontmatter 裡某個清單欄位（例如 tags、cards）：fn(舊清單) -> 新清單；欄位不存在就原樣回傳。
+ * 只動 frontmatter，不會誤改正文裡長得一樣的清單。
+ */
+export function mapFrontmatterList(content, key, fn) {
+  const fm = content.match(/^---\r?\n[\s\S]*?\r?\n---/);
+  if (!fm) return content;
+  const block = new RegExp(`^(${key}:\\r?\\n)((?:[ \\t]+-[ \\t].*\\r?\\n?)+)`, "m");
+  const updated = fm[0].replace(block, (_, head, items) => {
+    const values = items
+      .split(/\r?\n/)
+      .map((line) => line.match(/^\s+-\s+(.*)$/)?.[1])
+      .filter((v) => v !== undefined)
+      .map(parseScalar);
+    const next = [...new Set(fn(values).filter(Boolean))];
+    return next.length ? `${head}${next.map((v) => `  - ${yamlEscape(String(v))}`).join("\n")}\n` : `${head}`;
+  });
+  return updated === fm[0] ? content : updated + content.slice(fm[0].length);
+}
+
 function renderNoteFile(note) {
   return `${serializeFrontmatter(note)}\n\n# ${note.title}\n\n${String(note.body).trim()}\n`;
 }
@@ -278,6 +298,18 @@ export function createNoteStore(root) {
       if (updated === raw) return false;
       fs.writeFileSync(abs(relPath), updated, "utf8");
       return true;
+    },
+
+    /** 把筆記搬到另一個資料夾（檔名衝突就加流水號），回傳新的相對路徑。原資料夾變空會一併清掉。 */
+    moveNote(relPath, toFolder) {
+      const dirAbs = abs(toFolder);
+      fs.mkdirSync(dirAbs, { recursive: true });
+      const base = basenameOf(relPath);
+      let finalName = `${base}.md`;
+      for (let counter = 2; fs.existsSync(path.join(dirAbs, finalName)); counter++) finalName = `${base} (${counter}).md`;
+      fs.renameSync(abs(relPath), path.join(dirAbs, finalName));
+      this.deleteFile(relPath); // 只用來清空資料夾（檔案已經搬走）
+      return toRel(toFolder, finalName);
     },
 
     /** 刪除檔案（不存在就略過），並往上清掉因此變空的資料夾（不會刪到 vault 根目錄）。 */

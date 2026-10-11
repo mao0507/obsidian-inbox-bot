@@ -30,7 +30,9 @@ export function createLinkRewriter(moves) {
       const key = withoutExt(target.trim());
       const newPath = byPath.get(key) || (!key.includes("/") && byName.get(key));
       if (!newPath) return link;
-      return `[[${withoutExt(newPath)}${heading}|${alias ?? basenameOf(newPath)}]]`;
+      // 顯示文字就是舊檔名（自動產生的那種）就跟著換成新檔名；使用者自己取的別名保留
+      const keepAlias = alias !== undefined && alias !== basenameOf(key);
+      return `[[${withoutExt(newPath)}${heading}|${keepAlias ? alias : basenameOf(newPath)}]]`;
     });
 }
 
