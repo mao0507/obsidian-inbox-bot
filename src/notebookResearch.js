@@ -16,8 +16,10 @@ import { findUrls } from "./extractContent.js";
 // Deep Research 官方預設 timeout 是 1800 秒（--mode deep --import-all 這種阻塞式呼叫），
 // fast 模式通常幾十秒就完成，但還是給足夠寬裕的上限避免誤殺正常執行中的研究。
 const RESEARCH_TIMEOUT_MS = 30 * 60 * 1000;
-// generate report --wait 官方預設 timeout 是 300 秒，這裡抓寬一點。
-const REPORT_TIMEOUT_MS = 6 * 60 * 1000;
+// generate report --wait 的 CLI 預設只等 300 秒：來源多的 notebook（例如合併過的研究）寫詳細報告常常超過，
+// 要用 --timeout 明確放寬；我們這邊等 CLI 程序的上限再多留一點緩衝。
+const REPORT_WAIT_SECONDS = 20 * 60;
+const REPORT_TIMEOUT_MS = (REPORT_WAIT_SECONDS + 120) * 1000;
 const SHORT_TIMEOUT_MS = 60_000;
 // 完整 `notebooklm login` 要等使用者在瀏覽器裡完成 Google 登入，給 5 分鐘。
 const FULL_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
@@ -290,6 +292,8 @@ export function createNotebookResearch({ run, ai, researchMode = "deep", loginBr
           "--language",
           REPORT_LANGUAGE,
           "--wait",
+          "--timeout",
+          String(REPORT_WAIT_SECONDS),
           "--retry",
           "3",
           "-n",

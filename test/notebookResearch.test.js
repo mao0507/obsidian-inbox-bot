@@ -123,6 +123,7 @@ test("report is a custom zh_Hant report whose prompt walks through every planned
   const report = calls.find((a) => a[0] === "generate");
   assert.equal(report[report.indexOf("--format") + 1], "custom");
   assert.equal(report[report.indexOf("--language") + 1], "zh_Hant");
+  assert.ok(Number(report[report.indexOf("--timeout") + 1]) > 300, "must wait longer than the CLI default 300s");
   assert.match(promptText, /台灣離岸風電的發展瓶頸與機會/);
   for (const angle of plan.angles) assert.ok(promptText.includes(angle), angle);
   assert.match(promptText, /引用/);
