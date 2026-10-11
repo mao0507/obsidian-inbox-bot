@@ -14,13 +14,11 @@
 // 執行期間建議先停掉背景服務（pnpm run service:uninstall），避免同時有新筆記寫入。
 import { execFileSync } from "node:child_process";
 import { VAULT_PATH } from "../src/config.js";
-import { vault, pipeline, fetcher } from "../src/app.js";
+import { migration } from "../src/app.js";
 import { commitAndPush } from "../src/gitSync.js";
-import { createMigration } from "../src/migration.js";
 
 const BACKUP_TAG = "before-migration";
 const [command, arg] = process.argv.slice(2);
-const migration = createMigration({ vault, pipeline, fetcher });
 const git = (...args) => execFileSync("git", args, { cwd: VAULT_PATH, encoding: "utf8", stdio: "pipe" }).trim();
 
 // vault 是 git repo 才繼續：先 commit 目前狀態，再打 tag（tag 已存在就不動，保留最早的那個快照）。

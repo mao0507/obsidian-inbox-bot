@@ -1,7 +1,15 @@
 import { Telegraf, Markup } from "telegraf";
-import { TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, NOTEBOOKLM_ENABLED, NOTEBOOKLM_COMMAND } from "./config.js";
+import {
+  TELEGRAM_BOT_TOKEN,
+  TELEGRAM_ALLOWED_USER_IDS,
+  NOTEBOOKLM_ENABLED,
+  NOTEBOOKLM_COMMAND,
+  YTDLP_ENABLED,
+} from "./config.js";
 import { answerFromVault } from "./askVault.js";
-import { notebook, pipeline } from "./app.js";
+import { notebook, pipeline, vault, migration } from "./app.js";
+import { commitAndPush } from "./gitSync.js";
+import { registerAdminCommands } from "./botAdmin.js";
 import { createTaskQueue } from "./taskQueue.js";
 import { renderFolderView, renderNoteView, resolveBrowseToken } from "./browseView.js";
 import { formatPlan } from "./researchPlan.js";
@@ -185,6 +193,7 @@ export function startBot() {
         "想從已經存進去的筆記裡查資料，用 /ask 加上你的問題，例如：",
         "/ask 北海道有什麼景點",
         "想看目前有哪些分類、點進去瀏覽文章，用 /browse。",
+        "管理：/status 看狀態、/sync 同步 git、/logs 看 log、/restart 重啟、/migrate 舊筆記重建。",
         NOTEBOOKLM_ENABLED
           ? "想針對一個主題做真正的網路研究（不是查現有筆記，是查新資料），用 /notebook 加上主題，例如：\n/notebook 台灣離岸風電現況"
           : null,
@@ -345,6 +354,18 @@ export function startBot() {
     });
   }
 
+  // 管理類指令（/status、/sync、/logs、/restart、/migrate）。要在 bot.on("text") 之前註冊：
+  // 那個 handler 遇到 / 開頭的訊息會直接結束，不會再往下傳。
+  registerAdminCommands(bot, {
+    vault,
+    migration,
+    loadMigrationState: () => migration.currentState(),
+    lanes: { intake: intakeLane, research: researchLane },
+    runQueued,
+    commitAndPush,
+    tools: { notebooklm: NOTEBOOKLM_ENABLED, ytdlp: YTDLP_ENABLED },
+  });
+
   bot.on("text", async (ctx) => {
     const text = ctx.message.text;
     if (text.startsWith("/")) return; // 忽略其他指令
@@ -385,6 +406,11 @@ export function startBot() {
     ...(NOTEBOOKLM_ENABLED
       ? [{ command: "notebook", description: "用 NotebookLM 做研究，存進 Obsidian" }]
       : []),
+    { command: "status", description: "目前狀態：佇列、筆記數、重建進度" },
+    { command: "sync", description: "立刻把 vault 同步到 git" },
+    { command: "logs", description: "最近的 log（/logs error 只看錯誤）" },
+    { command: "restart", description: "重新啟動 bot" },
+    { command: "migrate", description: "舊筆記重建進度、重跑、收尾" },
     { command: "whoami", description: "查詢自己的 Telegram user ID" },
   ];
   // Telegram 的指令選單分「scope」（default / all_private_chats / 特定聊天...），

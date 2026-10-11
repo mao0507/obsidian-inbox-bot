@@ -120,8 +120,9 @@ console.log(
 // 這裡只偵測指令存不存在，不強制要求，找不到的話 /notebook 指令會回覆說明、不影響其他功能。
 // YouTube 影片字幕用的 yt-dlp（選用，沒裝的話影片只依標題與描述整理）。
 export const YTDLP_COMMAND = process.env.YTDLP_COMMAND || "yt-dlp";
+export const YTDLP_ENABLED = commandExists(YTDLP_COMMAND);
 console.log(
-  commandExists(YTDLP_COMMAND)
+  YTDLP_ENABLED
     ? `[youtube] 已偵測到「${YTDLP_COMMAND}」，影片會抓字幕整理`
     : `[youtube] 找不到「${YTDLP_COMMAND}」，影片筆記只會依標題與描述整理（安裝方式見 .env.example）`
 );

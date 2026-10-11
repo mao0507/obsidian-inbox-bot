@@ -18,6 +18,7 @@ import { createPipeline } from "./pipeline.js";
 import { createWebFetcher } from "./extractContent.js";
 import { createYouTubeFetcher, createYtDlpRunner, isYouTubeUrl } from "./youtube.js";
 import { commitAndPush } from "./gitSync.js";
+import { createMigration } from "./migration.js";
 
 export const vault = createNoteStore(VAULT_PATH);
 
@@ -46,3 +47,6 @@ export const pipeline = createPipeline({
   notebook,
   git: { commitAndPush },
 });
+
+// 舊筆記重建（CLI：scripts/migrate-vault.js；Telegram：/migrate）
+export const migration = createMigration({ vault, pipeline, fetcher });

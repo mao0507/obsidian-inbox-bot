@@ -81,6 +81,12 @@ export function createMigration({ vault, pipeline, fetcher, pauseMs = 3000 }) {
   return {
     inventory,
 
+    /** 目前的重建進度；還沒開始過（沒有進度檔）回傳 null。 */
+    currentState() {
+      const raw = vault.readFile(STATE_PATH);
+      return raw ? JSON.parse(raw) : null;
+    },
+
     /** dry-run：寫出重建計畫（含原文能不能抓到），不改任何筆記。 */
     async plan() {
       const groups = inventory();
