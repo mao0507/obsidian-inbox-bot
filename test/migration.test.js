@@ -227,3 +227,15 @@ test("research rebuild + finalize: one note per topic, notebooks merged, links r
   const allBodies = vault.listNotes().map((n) => n.body).join("\n");
   assert.ok(allBodies.includes(`[[${grill.newPath.replace(/\.md$/, "")}|`), "links point at the merged research note");
 });
+
+test("finalize removes stale maps of folders that are no longer in the taxonomy, keeps unfinished groups' notes", async () => {
+  const { vault, migration } = setup({ fetchable: { "https://a.com/vue": "Vue 原文" } });
+  seed(vault);
+  vault.writeFile("知識庫/知識庫地圖.md", "---\ntitle: 知識庫地圖\ntype: MOC\n---\n\n- [[Vue3-生命週期]]\n");
+
+  await migration.rebuild({ limit: 1 }); // 只完成一組，其他組還沒做
+  await migration.finalize();
+
+  assert.equal(vault.readFile("知識庫/知識庫地圖.md"), null);
+  assert.ok(vault.readNote("知識庫/參考.md"), "notes of unfinished groups stay");
+});

@@ -7,6 +7,7 @@
 //   pnpm run migrate research-plan       研究筆記：AI 依主題分組並寫出 _系統/migration-research-plan.md
 //   pnpm run migrate research-trial [N]  先重建 N 組研究（預設 1；每組 deep research 可能要半小時）
 //   pnpm run migrate research-run        重建剩下的研究 → 改寫連結 → 刪除舊研究筆記
+//   pnpm run migrate finalize            只收尾已完成的組（有組失敗、想先處理其他的時候用），失敗組的舊筆記保留
 //
 // trial / run 第一次執行前，會先把 vault 目前狀態 commit 並打上 git tag「before-migration」，
 // 想反悔：在 vault 資料夾執行 git reset --hard before-migration。
@@ -94,8 +95,17 @@ switch (command) {
     console.log(`✅ 研究筆記重建完成，結果見 ${VAULT_PATH}/_系統/migration-report.md`);
     break;
   }
+  case "finalize": {
+    // 部分組失敗（例如 NotebookLM 額度用完）時，先把已完成的組收尾；失敗組的舊筆記保留，之後重跑 run / research-run
+    ensureBackup();
+    const state = await migration.finalize();
+    await commitAndPush("舊筆記重建：收尾已完成的組");
+    const failed = Object.keys(state.failed);
+    console.log(`✅ 已收尾 ${Object.keys(state.done).length} 組${failed.length ? `；${failed.length} 組未完成，舊筆記保留：${failed.join("、")}` : ""}`);
+    break;
+  }
   default:
-    console.log("用法：pnpm run migrate plan | trial [N] | run | research-plan | research-trial [N] | research-run");
+    console.log("用法：pnpm run migrate plan | trial [N] | run | research-plan | research-trial [N] | research-run | finalize");
     process.exit(command ? 1 : 0);
 }
 process.exit(0);

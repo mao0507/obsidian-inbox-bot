@@ -250,6 +250,10 @@ export function createMigration({ vault, pipeline, fetcher, pauseMs = 3000 }) {
       }
       for (const oldPath of oldPaths) vault.deleteFile(oldPath);
       for (const top of Object.keys(TAXONOMY)) regenerateMoc(vault, top);
+      // 舊分類（例如「知識庫」）留下的地圖不會再被更新，裡面的連結多半已指向刪除的筆記，一併移除
+      for (const map of vault.listNotes().filter((n) => n.frontmatter?.type === "MOC")) {
+        if (!TAXONOMY[map.path.split("/")[0]]) vault.deleteFile(map.path);
+      }
 
       state.finalizedAt = new Date().toISOString();
       saveState(state);
