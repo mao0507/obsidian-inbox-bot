@@ -2,12 +2,18 @@ import { spawn } from "node:child_process";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+// 子程序不能繼承 bot 的 Telegram 設定：claude -p 啟動時會載入 Telegram plugin，plugin 優先讀環境變數
+// TELEGRAM_BOT_TOKEN，拿到 bot 的 token 就會跟 bot 搶著收訊息（409 Conflict），bot 收不到後續訊息。
+function childEnv() {
+  return Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("TELEGRAM_")));
+}
+
 // 執行本機 agent CLI，把 input 從 stdin 餵進去，回傳完整 stdout。
 // aiBackends.js 的 CLI adapter 用這支，
 // 避免重複實作 spawn / timeout / 錯誤處理邏輯。
 export function runCli(command, args, input, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: childEnv() });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
