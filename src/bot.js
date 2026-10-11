@@ -11,6 +11,7 @@ import { notebook, pipeline, vault, migration, ai } from "./app.js";
 import { commitAndPush } from "./gitSync.js";
 import { registerAdminCommands } from "./botAdmin.js";
 import { registerVaultToolCommands } from "./botVaultTools.js";
+import { keepPolling } from "./reconnect.js";
 import { createTaskQueue } from "./taskQueue.js";
 import { renderFolderView, renderNoteView, resolveBrowseToken } from "./browseView.js";
 import { formatPlan } from "./researchPlan.js";
@@ -439,20 +440,27 @@ export function startBot() {
       // 個別 scope 的失敗已經各自印過 warning，這裡不用再印一次。
     });
 
-  bot.launch().catch((err) => {
-    if (err?.response?.error_code === 409) {
-      console.error(
-        "[telegram] ❌ 啟動失敗：Telegram 說已經有另一個程式在用同一個 bot token 收訊息了" +
-          "（error 409 Conflict）。這代表電腦上還有別的 npm start / node 在跑同一支 bot，" +
-          "常見情況是另一個終端機視窗還開著沒關。請把其他跑這支 bot 的程式都關掉，再重新啟動這一個。" +
-          "Telegram bot 這部分目前沒有運作，但網頁版不受影響。"
-      );
-      return;
-    }
-    console.error("[telegram] bot 啟動失敗", err);
+  // 收訊息的迴圈掛掉（409 Conflict、網路斷線...）時自動重連，不然 bot 會「活著但不回應」。
+  const polling = keepPolling({
+    launch: () => bot.launch(),
+    onError: (err, delayMs) => {
+      const seconds = Math.round(delayMs / 1000);
+      if (err?.response?.error_code === 409) {
+        console.error(
+          `[telegram] ⚠️ 409 Conflict：有另一個程式也在用同一個 bot token 收訊息（例如另一個終端機或另一台電腦` +
+            `跑了 pnpm dev / pnpm start）。${seconds} 秒後自動重連；請把另一個關掉。`
+        );
+      } else {
+        console.error(`[telegram] ⚠️ 收訊息中斷（${err?.message || err}），${seconds} 秒後自動重連`);
+      }
+    },
   });
   console.log("[telegram] bot 已啟動（polling 模式）");
 
-  process.once("SIGINT", () => bot.stop("SIGINT"));
-  process.once("SIGTERM", () => bot.stop("SIGTERM"));
+  const shutdown = (signal) => {
+    polling.stop();
+    bot.stop(signal);
+  };
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
 }
