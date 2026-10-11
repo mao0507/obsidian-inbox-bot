@@ -2,7 +2,7 @@ import { normalizeUrl } from "./duplicateCheck.js";
 import { regenerateMoc } from "./mocSync.js";
 import { TAXONOMY } from "./taxonomy.js";
 import { notebookIdOf, isLegacyResearchNote as isResearch } from "./researchPlan.js";
-import { basenameOf } from "./noteStore.js";
+import { rewriteVaultLinks } from "./linkRewrite.js";
 
 // 舊筆記重建：把改版前的筆記（frontmatter 沒有 type 欄位）用新流程重新產生——重新抓原文、新的精讀模板、
 // 新分類樹、新檔名——再把全 vault 的 [[連結]] 改指向新筆記、刪掉舊筆記。
@@ -21,11 +21,7 @@ const RESEARCH_PLAN_PATH = "_系統/migration-research-plan.md";
 
 const isOldFormat = (note) => !note.frontmatter?.type; // 新筆記、卡片、地圖都有 type
 const isSystem = (note) => note.path.startsWith("_系統/") || note.path.startsWith("卡片/");
-const withoutExt = (relPath) => relPath.replace(/\.md$/i, "");
 const cell = (text) => String(text).replace(/\|/g, "\\|").replace(/\n/g, " ");
-
-// [[目標#標題|別名]]
-const WIKILINK = /\[\[([^\]|#]+)(#[^\]|]*)?(?:\|([^\]]*))?\]\]/g;
 
 // 每組之間停一下：連續請求同一個網站（例如十幾篇 Notion 頁面）會被限流（HTTP 429）。
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -223,31 +219,11 @@ export function createMigration({ vault, pipeline, fetcher, pauseMs = 3000 }) {
     /** 改寫全 vault 指向舊筆記的連結、刪除已重建的舊筆記、重新產生所有分類地圖。 */
     async finalize() {
       const state = loadState();
-      const byPath = new Map();
-      const byName = new Map(); // 舊檔名 -> 新路徑；檔名重複的不收（無法判斷連到哪一篇）
-      const ambiguous = new Set();
-      for (const { oldPaths, newPath } of Object.values(state.done)) {
-        for (const oldPath of oldPaths) {
-          byPath.set(withoutExt(oldPath), newPath);
-          const name = basenameOf(oldPath);
-          if (byName.has(name) && byName.get(name) !== newPath) ambiguous.add(name);
-          byName.set(name, newPath);
-        }
-      }
-      ambiguous.forEach((name) => byName.delete(name));
-
-      const rewrite = (content) =>
-        content.replace(WIKILINK, (link, target, heading = "", alias) => {
-          const key = withoutExt(target.trim());
-          const newPath = byPath.get(key) || (!key.includes("/") && byName.get(key));
-          if (!newPath) return link;
-          return `[[${withoutExt(newPath)}${heading}|${alias ?? basenameOf(newPath)}]]`;
-        });
-
-      const oldPaths = new Set(Object.values(state.done).flatMap((d) => d.oldPaths));
-      for (const note of vault.listNotes()) {
-        if (!oldPaths.has(note.path)) vault.updateNote(note.path, rewrite);
-      }
+      const moves = new Map(
+        Object.values(state.done).flatMap(({ oldPaths, newPath }) => oldPaths.map((oldPath) => [oldPath, newPath]))
+      );
+      const oldPaths = new Set(moves.keys());
+      rewriteVaultLinks(vault, moves, { skip: oldPaths });
       for (const oldPath of oldPaths) vault.deleteFile(oldPath);
       for (const top of Object.keys(TAXONOMY)) regenerateMoc(vault, top);
       // 舊分類（例如「知識庫」）留下的地圖不會再被更新，裡面的連結多半已指向刪除的筆記，一併移除
