@@ -19,6 +19,7 @@ import { createWebFetcher } from "./extractContent.js";
 import { createYouTubeFetcher, createYtDlpRunner, isYouTubeUrl } from "./youtube.js";
 import { commitAndPush } from "./gitSync.js";
 import { createMigration } from "./migration.js";
+import { createCanvasMaker } from "./canvasMaker.js";
 
 export const vault = createNoteStore(VAULT_PATH);
 
@@ -50,3 +51,6 @@ export const pipeline = createPipeline({
 
 // 舊筆記重建（CLI：scripts/migrate-vault.js；Telegram：/migrate）
 export const migration = createMigration({ vault, pipeline, fetcher });
+
+// /canvas：Obsidian Canvas 說明圖等
+export const canvasMaker = createCanvasMaker({ vault, ai });

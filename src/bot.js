@@ -7,10 +7,11 @@ import {
   YTDLP_ENABLED,
 } from "./config.js";
 import { answerFromVault } from "./askVault.js";
-import { notebook, pipeline, vault, migration, ai } from "./app.js";
+import { notebook, pipeline, vault, migration, ai, canvasMaker } from "./app.js";
 import { commitAndPush } from "./gitSync.js";
 import { registerAdminCommands } from "./botAdmin.js";
 import { registerVaultToolCommands } from "./botVaultTools.js";
+import { registerCanvasCommands } from "./botCanvas.js";
 import { keepPolling } from "./reconnect.js";
 import { createTaskQueue } from "./taskQueue.js";
 import { renderFolderView, renderNoteView, resolveBrowseToken } from "./browseView.js";
@@ -369,6 +370,7 @@ export function startBot() {
     tools: { notebooklm: NOTEBOOKLM_ENABLED, ytdlp: YTDLP_ENABLED },
   });
   registerVaultToolCommands(bot, { vault, ai, intakeLane, runQueued, inBackground, editStatus, commitAndPush });
+  registerCanvasCommands(bot, { canvasMaker, intakeLane, runQueued });
 
   bot.on("text", async (ctx) => {
     const text = ctx.message.text;
@@ -410,6 +412,7 @@ export function startBot() {
     ...(NOTEBOOKLM_ENABLED
       ? [{ command: "notebook", description: "用 NotebookLM 做研究，存進 Obsidian" }]
       : []),
+    { command: "canvas", description: "畫成 Obsidian Canvas（/canvas 說明 主題）" },
     { command: "cards", description: "找出並合併重複的概念卡" },
     { command: "tags", description: "看 tag 使用量、合併重複的 tag" },
     { command: "status", description: "目前狀態：佇列、筆記數、重建進度" },
