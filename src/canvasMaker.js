@@ -1,7 +1,8 @@
 import { createCanvas, textCardSize } from "./canvasWriter.js";
 import { mindMapLayout, flowLayout, columnsLayout, clusterLayout } from "./canvasLayout.js";
 import { buildCatalog, selectRelevantNotes } from "./vaultCatalog.js";
-import { titleToFilename, wikiLink } from "./noteStore.js";
+import { titleToFilename, wikiLink, basenameOf } from "./noteStore.js";
+import { mergeRelationCanvas } from "./canvasMerge.js";
 
 // /canvas：從 vault 找出跟主題相關的筆記，請 AI 整理成結構，再排版寫成 Obsidian Canvas。
 // 文字卡負責「說明」（AI 寫的重點），筆記卡負責「出處」（指向既有筆記，可在 Obsidian 直接預覽、點進去）。
@@ -219,6 +220,28 @@ export function createCanvasMaker({ vault, ai }) {
     canvas.addText({ text, x: -size.width / 2, y: bottomOf(boxes) + 120, ...size });
   }
 
+  function updateRelationCanvas({ path, old, catalog, picks, edges, title }) {
+    // 筆記不在原路徑：用檔名找搬家後的位置（tag 合併、重新分類只換資料夾不改檔名）
+    const byName = new Map(catalog.map((n) => [basenameOf(n.path), n.path]));
+    const resolve = (p) => (vault.readFile(p) !== null ? p : byName.get(basenameOf(p)) ?? null);
+    const result = mergeRelationCanvas(old, { resolve, picks, relations: [...edges.values()], cardSize: FILE_CARD, budget: MAX_CANVAS_NODES });
+    vault.writeFile(path, `${JSON.stringify(result.canvas, null, 2)}
+`);
+    const changes = [
+      `新增 ${result.added.length} 篇`,
+      result.moved && `${result.moved} 篇改指向新路徑`,
+      result.removed && `移除 ${result.removed} 篇已刪除的筆記`,
+      `補 ${result.edgesAdded} 條關係`,
+      result.skipped && `${result.skipped} 篇放不下（圖已達 ${MAX_CANVAS_NODES} 個節點，刪掉一些節點或另開主題）`,
+    ].filter(Boolean);
+    return {
+      path,
+      title,
+      summary: `已更新既有關聯圖（保留你的排版與自加內容）：${changes.join("、")}`,
+      usedNotes: result.canvas.nodes.filter((n) => n.type === "file").map((n) => n.file),
+    };
+  }
+
   // 同名不覆蓋：說明/規劃/研究圖是一次性產出，再產生一次就另存新檔
   function save(kind, title, canvas) {
     const base = `${CANVAS_ROOT}/${kind}/${titleToFilename(title)}`;
@@ -355,11 +378,22 @@ export function createCanvasMaker({ vault, ai }) {
     /**
      * 關聯圖：相關的筆記與概念卡依資料夾分群；vault 既有的關係畫成無標籤的線，
      * AI 判斷的關係畫成彩色、帶標籤的線（同一對已有既有關係時升級成帶標籤，不重複畫）。
-     * 檔名依主題固定（Canvas/關聯/<主題> 關聯圖.canvas），之後可以增量更新。
+     * 檔名依主題固定（Canvas/關聯/<主題> 關聯圖.canvas）；已經有這張圖就增量更新（見 canvasMerge.js），不覆蓋使用者的調整。
      * @returns {{ path, title, summary, usedNotes: string[] }}
      */
     async relate(topic) {
-      const allPicks = await selectRelevantNotes(ai, buildCatalog(vault), topic, { max: MAX_RELATION_NOTES });
+      const catalog = buildCatalog(vault);
+      const path = `${CANVAS_ROOT}/關聯/${titleToFilename(`${topic} 關聯圖`)}.canvas`;
+      const oldRaw = vault.readFile(path);
+      let old = null;
+      if (oldRaw !== null) {
+        try {
+          old = JSON.parse(oldRaw);
+        } catch {
+          throw new Error(`${path} 不是有效的 canvas（可能手動改壞了），修好或刪掉再試一次`);
+        }
+      }
+      const allPicks = await selectRelevantNotes(ai, catalog, topic, { max: MAX_RELATION_NOTES });
       // 節點上限：中心 + 群組框 + 筆記 + 延伸閱讀；超過就把最不相關的（挑選順序最後的）移到延伸閱讀
       const groupCount = (paths) => new Set(paths.map((p) => (p.startsWith("卡片/") ? CARD_GROUP : folderOf(p)))).size;
       let picks = allPicks;
@@ -378,10 +412,18 @@ export function createCanvasMaker({ vault, ai }) {
       // 合併兩種關係：同一對以 AI 的標籤為準
       const edges = new Map();
       for (const r of existingRelations(notes)) edges.set(pairKey(r.from, r.to), { ...r });
+      if (old) {
+        // 既有關係也看舊圖上的筆記，新筆記才連得到它們
+        const onCanvas = (old.nodes || []).filter((n) => n.type === "file" && vault.readFile(n.file) !== null).map((n) => n.file);
+        const extra = onCanvas.filter((p) => !known.has(p)).map((p) => vault.readNote(p));
+        for (const r of existingRelations([...notes, ...extra])) if (!edges.has(pairKey(r.from, r.to))) edges.set(pairKey(r.from, r.to), { ...r });
+      }
+
       for (const r of map.relations || []) {
         if (!known.has(r.from) || !known.has(r.to) || r.from === r.to || !r.label) continue;
         edges.set(pairKey(r.from, r.to), { from: r.from, to: r.to, label: String(r.label).trim(), color: AI_RELATION_COLOR });
       }
+      if (old) return updateRelationCanvas({ path, old, catalog, picks: allPicks, edges, title: map.title || topic });
 
       // 依資料夾分群（概念卡一群），群的順序依第一篇被挑中的順序（越相關越前面）
       const clusters = new Map();
@@ -413,7 +455,6 @@ export function createCanvasMaker({ vault, ai }) {
       for (const e of drawn) canvas.addEdge({ from: nodeOf.get(e.from), to: nodeOf.get(e.to), label: e.label, color: e.color });
       addFurtherReading(canvas, allPicks.slice(picks.length), [layout.center, ...layout.clusters.map((c) => c.group)]);
 
-      const path = `${CANVAS_ROOT}/關聯/${titleToFilename(`${topic} 關聯圖`)}.canvas`;
       vault.writeFile(path, `${JSON.stringify(canvas.toJSON(), null, 2)}\n`);
       const aiCount = drawn.filter((e) => e.label).length;
       return {

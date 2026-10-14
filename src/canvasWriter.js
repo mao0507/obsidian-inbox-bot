@@ -8,10 +8,11 @@ import crypto from "node:crypto";
 
 const newId = () => crypto.randomBytes(8).toString("hex");
 
-export function createCanvas() {
-  const nodes = [];
-  const edges = [];
-  const ids = new Set();
+/** @param {{nodes?: object[], edges?: object[]}} [initial] 既有的 canvas 內容（增量更新時從檔案讀進來），原樣保留 */
+export function createCanvas(initial = {}) {
+  const nodes = [...(initial.nodes || [])];
+  const edges = [...(initial.edges || [])];
+  const ids = new Set(nodes.map((n) => n.id));
 
   function addNode(node) {
     const id = newId();

@@ -350,3 +350,70 @@ test("relation canvas skips plain links inside the same group (the group already
   const out = await createCanvasMaker({ vault, ai }).relate("y");
   assert.equal(JSON.parse(vault.readFile(out.path)).edges.length, 0);
 });
+
+// ---- 關聯圖增量更新 ----
+
+async function relationCanvasEditedByUser() {
+  const ctx = relationVault();
+  let picks = [ctx.a, ctx.b];
+  const ai = { askJson: async (input) => (input.tool.name === "select_notes" ? { paths: picks } : { title: "t", summary: "s", relations: [{ from: ctx.a, to: ctx.c, label: "比較" }] }) };
+  const maker = createCanvasMaker({ vault: ctx.vault, ai });
+  const { path: file } = await maker.relate("Vue");
+  // 使用者在 Obsidian 裡：把 a 拖到別處、自己加一張文字卡並連到 a
+  const json = JSON.parse(ctx.vault.readFile(file));
+  const aNode = json.nodes.find((n) => n.file === ctx.a);
+  aNode.x = 5000;
+  aNode.y = -3000;
+  json.nodes.push({ id: "mynote", type: "text", text: "我的筆記", x: 6000, y: 0, width: 200, height: 100 });
+  json.edges.push({ id: "myedge", fromNode: "mynote", toNode: aNode.id });
+  ctx.vault.writeFile(file, JSON.stringify(json));
+  return { ...ctx, file, maker, setPicks: (p) => (picks = p), read: () => JSON.parse(ctx.vault.readFile(file)) };
+}
+
+test("relation canvas update keeps user-moved positions and user-added cards and edges", async () => {
+  const t = await relationCanvasEditedByUser();
+  const out = await t.maker.relate("Vue");
+  const json = t.read();
+  assert.equal(out.path, t.file);
+  const aNode = json.nodes.find((n) => n.file === t.a);
+  assert.deepEqual([aNode.x, aNode.y], [5000, -3000]);
+  assert.ok(json.nodes.some((n) => n.id === "mynote"));
+  assert.ok(json.edges.some((e) => e.id === "myedge"));
+  assert.ok(!json.nodes.some((n) => n.type === "group" && n.label === "新增"), "nothing new -> no 新增 group");
+});
+
+test("relation canvas update puts new notes inside the 新增 group and links them", async () => {
+  const t = await relationCanvasEditedByUser();
+  t.setPicks([t.a, t.b, t.c]);
+  await t.maker.relate("Vue");
+  const json = t.read();
+  const group = json.nodes.find((n) => n.type === "group" && n.label === "新增");
+  const cNode = json.nodes.find((n) => n.file === t.c);
+  assert.ok(group && cNode);
+  assert.ok(cNode.x >= group.x && cNode.x + cNode.width <= group.x + group.width && cNode.y >= group.y && cNode.y + cNode.height <= group.y + group.height);
+  for (const n of json.nodes.filter((n) => n !== group && n !== cNode)) assert.ok(!overlaps(group, n), "新增 group sits beside the old map");
+  const aId = json.nodes.find((n) => n.file === t.a).id;
+  assert.ok(json.edges.some((e) => e.label === "比較" && [e.fromNode, e.toNode].sort().join() === [aId, cNode.id].sort().join()));
+});
+
+test("relation canvas update removes nodes and edges of deleted notes", async () => {
+  const t = await relationCanvasEditedByUser();
+  const bId = t.read().nodes.find((n) => n.file === t.b).id;
+  t.vault.deleteFile(t.b);
+  t.setPicks([t.a]);
+  await t.maker.relate("Vue");
+  const json = t.read();
+  assert.ok(!json.nodes.some((n) => n.file === t.b));
+  assert.ok(!json.edges.some((e) => e.fromNode === bId || e.toNode === bId));
+});
+
+test("relation canvas update follows notes moved to another folder", async () => {
+  const t = await relationCanvasEditedByUser();
+  const bId = t.read().nodes.find((n) => n.file === t.b).id;
+  const newPath = t.vault.moveNote(t.b, "技術/前端框架/Vue3");
+  t.setPicks([t.a, newPath]);
+  await t.maker.relate("Vue");
+  const json = t.read();
+  assert.equal(json.nodes.find((n) => n.id === bId).file, newPath);
+  assert.equal(json.nodes.filter((n) => n.file === newPath).length, 1, "moved note is not added again");
+});
