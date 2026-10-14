@@ -1,5 +1,5 @@
 import { createCanvas, textCardSize } from "./canvasWriter.js";
-import { mindMapLayout, flowLayout } from "./canvasLayout.js";
+import { mindMapLayout, flowLayout, columnsLayout } from "./canvasLayout.js";
 import { buildCatalog, selectRelevantNotes } from "./vaultCatalog.js";
 import { titleToFilename, wikiLink } from "./noteStore.js";
 
@@ -82,6 +82,32 @@ const PLAN_TOOL = {
 };
 
 const bullet = (items) => items.map((p) => `- ${p}`).join("\n");
+
+// 研究總覽每篇研究最多畫幾個角度、幾個來源；最多畫 2 篇研究（2 ×（群組 + 問題 + 筆記 + 7 + 4）+ 延伸閱讀 ≤ 30）
+const MAX_RESEARCH_SHOWN = 2;
+const MAX_ANGLES = 7;
+const MAX_SOURCES = 4;
+const URL_PATTERN = /https?:\/\/[^\s)\]>"'，。]+/g;
+
+/**
+ * 從研究筆記擷取研究總覽要的資料（不需要 AI）：
+ * - question：frontmatter 的 topic（沒有就用標題）
+ * - angles：「## 詳細內容」底下的 ### 章節標題（去掉編號，略過參考來源清單與開頭的研究問題說明）
+ * - cards：frontmatter 的概念卡；urls：正文與原始報告裡引用的網址（不重複、依出現順序）
+ */
+export function researchOutline(note) {
+  const details = (note.body.split(/^## 詳細內容\s*$/m)[1] || "").split(/^## /m)[0];
+  const angles = [...details.matchAll(/^### (.+)$/gm)]
+    .map((m) => m[1].replace(/^\d+[.、]\s*/, "").trim())
+    .filter((title) => !/參考|來源清單|reference|研究(問題|背景)|與角度$/i.test(title)); // 報告開頭的「研究問題／背景與角度」說明章節不是角度
+  const urls = [...new Set((note.body.match(URL_PATTERN) || []).map((u) => u.replace(/[.,;:]+$/, "")))];
+  return {
+    question: note.frontmatter?.topic || note.title,
+    angles,
+    cards: (note.frontmatter?.cards || []).map((name) => `卡片/${name}.md`),
+    urls,
+  };
+}
 const bottomOf = (boxes) => Math.max(...boxes.map((b) => b.y + b.height));
 
 /**
@@ -266,6 +292,62 @@ export function createCanvasMaker({ vault, ai }) {
 
       const path = save("規劃", map.title || goal, canvas);
       return { path, title: map.title, summary: map.summary, usedNotes: [...placed] };
+    },
+
+    /**
+     * 研究總覽：找出相關的研究筆記（/notebook 做的），每篇一列三欄：研究問題與研究筆記 → 研究角度 → 來源（概念卡、引用網址）。
+     * 研究角度與來源直接從研究筆記擷取，AI 只負責挑出相關的研究。
+     * @returns {{ path, title, summary, usedNotes: string[] }}
+     */
+    async research(topic) {
+      const catalog = buildCatalog(vault).filter((c) => c.kind === "research");
+      const picks = catalog.length ? await selectRelevantNotes(ai, catalog, topic, { max: 5 }) : [];
+      if (!picks.length) {
+        throw new Error(
+          `vault 裡找不到跟「${topic}」相關的研究筆記。想做新的研究用 /notebook ${topic}；只想整理既有筆記用 /canvas 說明 ${topic}`
+        );
+      }
+      const shown = picks.slice(0, MAX_RESEARCH_SHOWN).map((p) => ({ path: p, outline: researchOutline(vault.readNote(p)) }));
+
+      const rows = shown.map(({ path: notePath, outline }) => {
+        const questionText = `# ${outline.question}`;
+        const angleTexts = outline.angles.slice(0, MAX_ANGLES).map((a) => `**${a}**`);
+        const cards = outline.cards.filter((c) => vault.readFile(c) !== null).slice(0, MAX_SOURCES);
+        const urls = outline.urls.slice(0, MAX_SOURCES - cards.length);
+        return { notePath, questionText, angleTexts, cards, urls };
+      });
+      const layout = columnsLayout({
+        rows: rows.map((r) => ({
+          columns: [
+            [textCardSize(r.questionText, 420), FILE_CARD],
+            r.angleTexts.map((t) => textCardSize(t, 340)),
+            [...r.cards.map(() => FILE_CARD), ...r.urls.map(() => ({ width: 400, height: 140 }))],
+          ],
+        })),
+      });
+
+      const canvas = createCanvas();
+      layout.rows.forEach(({ group, columns: [left, middle, right] }, i) => {
+        const r = rows[i];
+        canvas.addGroup({ label: `研究：${vault.readNote(r.notePath).title}`, ...group });
+        const question = canvas.addText({ text: r.questionText, color: "6", ...left[0] });
+        canvas.addFile({ file: r.notePath, ...left[1] });
+        middle.forEach((box, j) => {
+          const angle = canvas.addText({ text: r.angleTexts[j], ...box });
+          canvas.addEdge({ from: question, to: angle, fromSide: "right", toSide: "left" });
+        });
+        right.forEach((box, j) => {
+          if (j < r.cards.length) canvas.addFile({ file: r.cards[j], ...box });
+          else canvas.addLink({ url: r.urls[j - r.cards.length], ...box });
+        });
+      });
+      addFurtherReading(canvas, picks.slice(MAX_RESEARCH_SHOWN), layout.rows.map((r) => r.group));
+
+      // 檔名用研究筆記的標題（研究問題通常是一長句，當檔名太長）
+      const title = `${vault.readNote(shown[0].path).title} 研究總覽`;
+      const path = save("研究", title, canvas);
+      const summary = rows.map((r) => `${vault.readNote(r.notePath).title}：${r.angleTexts.length} 個研究角度`).join("；");
+      return { path, title, summary, usedNotes: rows.map((r) => r.notePath) };
     },
   };
 }

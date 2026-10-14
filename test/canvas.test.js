@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { createNoteStore } from "../src/noteStore.js";
 import { createCanvas } from "../src/canvasWriter.js";
-import { mindMapLayout, flowLayout } from "../src/canvasLayout.js";
+import { mindMapLayout, flowLayout, columnsLayout } from "../src/canvasLayout.js";
 import { buildCatalog, selectRelevantNotes } from "../src/vaultCatalog.js";
-import { createCanvasMaker, MAX_CANVAS_NODES } from "../src/canvasMaker.js";
+import { createCanvasMaker, MAX_CANVAS_NODES, researchOutline } from "../src/canvasMaker.js";
 
 const tempVault = () => createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "canvas-test-")));
 const note = (vault, folder, title, tags = []) =>
@@ -178,4 +178,95 @@ test("plan canvas works with no related notes", async () => {
   const out = await createCanvasMaker({ vault, ai: fakeAi({ picks: [], map, tool: "plan_map" }) }).plan("學 Rust");
   assert.deepEqual(out.usedNotes, []);
   assert.ok(JSON.parse(vault.readFile(out.path)).nodes.length >= 3);
+});
+
+// ---- 研究總覽 ----
+
+const researchBody = `> [!summary] TL;DR
+> 重點
+
+## 詳細內容
+
+### 0. 研究問題與角度
+說明
+
+### 1. 來源與設計理念
+內容 https://github.com/x/skills/issues/1
+
+### 2. 需求訪談機制
+內容 [影片](https://www.youtube.com/watch?v=abc)
+
+### 參考來源清單
+- https://example.com/a
+
+## 概念卡
+
+- [[卡片/Phase Gate|Phase Gate]]
+
+> [!note]- 原始研究報告（NotebookLM）
+> 見 https://example.com/b 與 https://github.com/x/skills/issues/1`;
+
+function researchNote(vault, title) {
+  vault.writeFile("卡片/Phase Gate.md", "---\ntitle: Phase Gate\ntype: card\n---\n\n# Phase Gate\n\n說明\n");
+  return vault.writeNote({
+    folder: "AI/編程助手/ClaudeCode",
+    title,
+    tags: ["ClaudeCode"],
+    cards: ["Phase Gate"],
+    summary: "s",
+    body: researchBody,
+    type: "research",
+    topic: `${title} 是什麼`,
+    notebook_id: "nb1",
+    sourceChannel: "telegram-notebook",
+  }).relativePath;
+}
+
+test("research outline: question, angles from detail sections (minus reference lists), cards and unique URLs", () => {
+  const vault = tempVault();
+  const p = researchNote(vault, "grill-me 研究");
+  const outline = researchOutline(vault.readNote(p));
+  assert.equal(outline.question, "grill-me 研究 是什麼");
+  assert.deepEqual(outline.angles, ["來源與設計理念", "需求訪談機制"]);
+  assert.deepEqual(outline.cards, ["卡片/Phase Gate.md"]);
+  assert.deepEqual(outline.urls, ["https://github.com/x/skills/issues/1", "https://www.youtube.com/watch?v=abc", "https://example.com/a", "https://example.com/b"]);
+});
+
+test("columns layout: three columns per row, rows stacked, nothing overlaps", () => {
+  const col = (n) => Array.from({ length: n }, () => ({ width: 360, height: 120 }));
+  const out = columnsLayout({ rows: [{ columns: [col(2), col(5), col(3)] }, { columns: [col(1), col(2), col(0)] }] });
+  const boxes = out.rows.flatMap((r) => r.columns.flat());
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) assert.ok(!overlaps(boxes[i], boxes[j]));
+  out.rows.forEach((r) => r.columns.flat().forEach((b) => assert.ok(inside(b, r.group))));
+  assert.ok(out.rows[1].group.y >= out.rows[0].group.y + out.rows[0].group.height);
+  assert.ok(out.rows[0].columns[1][0].x > out.rows[0].columns[0][0].x && out.rows[0].columns[2][0].x > out.rows[0].columns[1][0].x);
+});
+
+test("research canvas: question → angles, research note and sources in columns; only research notes are offered", async () => {
+  const vault = tempVault();
+  const p = researchNote(vault, "grill-me 研究");
+  note(vault, "技術/前端框架/Vue", "不是研究", ["Vue"]);
+  let offered = "";
+  const ai = { askJson: async (input) => ((offered = input.user), { paths: [p] }) };
+
+  const out = await createCanvasMaker({ vault, ai }).research("grill-me");
+
+  assert.doesNotMatch(offered, /不是研究/, "only research notes are in the catalog");
+  assert.equal(out.path, "Canvas/研究/grill-me 研究 研究總覽.canvas");
+  const json = JSON.parse(vault.readFile(out.path));
+  const question = json.nodes.find((n) => n.type === "text" && n.text.includes("grill-me 研究 是什麼"));
+  const angles = json.nodes.filter((n) => n.type === "text" && /來源與設計理念|需求訪談機制/.test(n.text));
+  assert.equal(angles.length, 2);
+  angles.forEach((a) => assert.ok(json.edges.some((e) => e.fromNode === question.id && e.toNode === a.id)));
+  assert.ok(json.nodes.some((n) => n.type === "file" && n.file === p));
+  assert.ok(json.nodes.some((n) => n.type === "file" && n.file === "卡片/Phase Gate.md"));
+  assert.ok(json.nodes.some((n) => n.type === "link" && n.url === "https://example.com/a"));
+  assert.deepEqual(out.usedNotes, [p]);
+});
+
+test("research canvas without related research explains what to do instead", async () => {
+  const vault = tempVault();
+  note(vault, "技術/前端框架/Vue", "不是研究", ["Vue"]);
+  const ai = { askJson: async () => ({ paths: [] }) };
+  await assert.rejects(createCanvasMaker({ vault, ai }).research("grill-me"), /\/notebook[\s\S]*\/canvas 說明/);
 });

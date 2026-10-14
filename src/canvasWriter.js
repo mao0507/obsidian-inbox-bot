@@ -25,6 +25,8 @@ export function createCanvas() {
     addText: ({ text, color, ...box }) => addNode({ type: "text", text, ...box, ...(color ? { color } : {}) }),
     /** 指向 vault 內檔案的卡片（Obsidian 會顯示預覽、可點進去） */
     addFile: ({ file, color, ...box }) => addNode({ type: "file", file, ...box, ...(color ? { color } : {}) }),
+    /** 網址卡（Obsidian 會顯示網頁預覽） */
+    addLink: ({ url, color, ...box }) => addNode({ type: "link", url, ...box, ...(color ? { color } : {}) }),
     /** 群組框（畫在其他卡片後面當背景） */
     addGroup: ({ label, color, ...box }) => addNode({ type: "group", label, ...box, ...(color ? { color } : {}) }),
     /** 連線；from / to 是 add* 回傳的 id */

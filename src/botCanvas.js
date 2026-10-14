@@ -1,4 +1,4 @@
-// /canvas：用 Obsidian Canvas 畫說明圖、規劃圖（之後加上關聯、研究總覽）。
+// /canvas：用 Obsidian Canvas 畫說明圖、規劃圖、研究總覽（之後加上關聯圖）。
 // 產生要 1~2 分鐘（AI 挑筆記 + 整理結構），排進一般收件佇列（會寫入 vault）。
 // Telegram 點不開 obsidian:// 連結，回覆檔案路徑，在 Obsidian 用快速切換（Ctrl+O）貼上開啟。
 
@@ -6,6 +6,7 @@
 const KINDS = {
   說明: { method: "explain", hint: "把主題整理成心智圖，連到相關筆記", example: "/canvas 說明 Vue 的響應式怎麼運作" },
   規劃: { method: "plan", hint: "把目標整理成分階段的流程圖", example: "/canvas 規劃 北海道 5 天行程" },
+  研究: { method: "research", hint: "把相關的 NotebookLM 研究畫成「研究問題 → 角度 → 來源」", example: "/canvas 研究 grill-me" },
 };
 
 const USAGE = [

@@ -57,6 +57,44 @@ export function flowLayout({ header, phases }) {
 }
 
 /**
+ * 分欄（研究總覽）：每一列一個群組框、由上往下排；列內分成幾欄，每欄的卡片由上往下堆疊。
+ * 同一列的欄寬取各欄最寬的卡片，所以欄與欄之間不會重疊。
+ *
+ * @param {{ rows: Array<{ columns: Array<Array<{width,height}>> }> }} input
+ * @returns {{ rows: Array<{ group: Box, columns: Box[][] }> }}
+ */
+export function columnsLayout({ rows }) {
+  let y = 0;
+  return {
+    rows: rows.map(({ columns }) => {
+      const widths = columns.map((cards) => Math.max(0, ...cards.map((c) => c.width)));
+      const heights = columns.map((cards) => cards.reduce((h, c) => h + c.height, 0) + Math.max(0, cards.length - 1) * GAP_Y);
+      const contentWidth = widths.reduce((w, n) => w + n, 0) + Math.max(0, columns.length - 1) * GAP_X;
+      const top = y + GROUP_PADDING + GROUP_LABEL_SPACE;
+      let x = -contentWidth / 2;
+      const boxes = columns.map((cards, i) => {
+        let cardY = top;
+        const colBoxes = cards.map((c) => {
+          const box = { x: x + (widths[i] - c.width) / 2, y: cardY, width: c.width, height: c.height };
+          cardY += c.height + GAP_Y;
+          return box;
+        });
+        x += widths[i] + GAP_X;
+        return colBoxes;
+      });
+      const group = {
+        x: -contentWidth / 2 - GROUP_PADDING,
+        y,
+        width: contentWidth + GROUP_PADDING * 2,
+        height: Math.max(0, ...heights) + GROUP_PADDING * 2 + GROUP_LABEL_SPACE,
+      };
+      y += group.height + ROW_GAP_Y;
+      return { group, columns: boxes };
+    }),
+  };
+}
+
+/**
  * 心智圖：中心在中間，分支輪流放右、左兩側並各自由上往下堆疊，每個分支的葉子（筆記卡）放在它外側那一欄。
  * 每個分支佔一個區塊（高度 = 分支卡與其葉子較高者），區塊之間不重疊，所以整張圖保證不重疊。
  *
