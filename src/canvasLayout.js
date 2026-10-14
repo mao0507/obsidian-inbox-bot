@@ -4,6 +4,58 @@ const GAP_X = 120; // 欄與欄之間
 const GAP_Y = 40; // 同一欄上下之間
 const BLOCK_GAP_Y = 80; // 不同分支之間
 
+const GROUP_PADDING = 40;
+const GROUP_LABEL_SPACE = 30; // Obsidian 群組框的標題畫在框的上緣
+const ROW_GAP_Y = 100;
+
+/**
+ * 流程圖（規劃圖）：最上面一張標題卡；每個階段一列、用群組框包起來，由上往下排；
+ * 階段內的步驟由左到右排，每個步驟引用的筆記卡掛在它正下方。每列水平置中。
+ *
+ * @param {{ header: {width,height}, phases: Array<{ steps: Array<{ size: {width,height}, leaves: Array<{width,height}> }> }> }} input
+ * @returns {{ header: Box, phases: Array<{ group: Box, steps: Array<{ box: Box, leaves: Box[] }> }> }}
+ */
+export function flowLayout({ header, phases }) {
+  const headerBox = { x: -header.width / 2, y: 0, width: header.width, height: header.height };
+  let y = headerBox.height + ROW_GAP_Y;
+
+  const laidOut = phases.map(({ steps }) => {
+    const columns = steps.map(({ size, leaves }) => {
+      const width = Math.max(size.width, ...leaves.map((l) => l.width));
+      const height = size.height + leaves.reduce((h, l) => h + GAP_Y + l.height, 0);
+      return { width, height };
+    });
+    const contentWidth = columns.reduce((w, c) => w + c.width, 0) + Math.max(0, columns.length - 1) * GAP_X;
+    const contentHeight = Math.max(0, ...columns.map((c) => c.height));
+    const top = y + GROUP_PADDING + GROUP_LABEL_SPACE;
+    let x = -contentWidth / 2;
+
+    const stepBoxes = steps.map(({ size, leaves }, i) => {
+      const colWidth = columns[i].width;
+      const box = { x: x + (colWidth - size.width) / 2, y: top, width: size.width, height: size.height };
+      let leafY = top + size.height + GAP_Y;
+      const leafBoxes = leaves.map((leaf) => {
+        const leafBox = { x: x + (colWidth - leaf.width) / 2, y: leafY, width: leaf.width, height: leaf.height };
+        leafY += leaf.height + GAP_Y;
+        return leafBox;
+      });
+      x += colWidth + GAP_X;
+      return { box, leaves: leafBoxes };
+    });
+
+    const group = {
+      x: -contentWidth / 2 - GROUP_PADDING,
+      y,
+      width: contentWidth + GROUP_PADDING * 2,
+      height: contentHeight + GROUP_PADDING * 2 + GROUP_LABEL_SPACE,
+    };
+    y += group.height + ROW_GAP_Y;
+    return { group, steps: stepBoxes };
+  });
+
+  return { header: headerBox, phases: laidOut };
+}
+
 /**
  * 心智圖：中心在中間，分支輪流放右、左兩側並各自由上往下堆疊，每個分支的葉子（筆記卡）放在它外側那一欄。
  * 每個分支佔一個區塊（高度 = 分支卡與其葉子較高者），區塊之間不重疊，所以整張圖保證不重疊。

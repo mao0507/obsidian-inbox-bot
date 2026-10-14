@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createNoteStore } from "../src/noteStore.js";
 import { createCanvas } from "../src/canvasWriter.js";
-import { mindMapLayout } from "../src/canvasLayout.js";
+import { mindMapLayout, flowLayout } from "../src/canvasLayout.js";
 import { buildCatalog, selectRelevantNotes } from "../src/vaultCatalog.js";
 import { createCanvasMaker, MAX_CANVAS_NODES } from "../src/canvasMaker.js";
 
@@ -123,4 +123,59 @@ test("explain canvas caps nodes and lists the rest under 延伸閱讀", async ()
   const further = json.nodes.find((n) => n.type === "text" && n.text.startsWith("## 延伸閱讀"));
   assert.ok(further, "overflow notes go into 延伸閱讀");
   assert.match(further.text, /\[\[技術\/前端框架\/Vue\/筆記 \d+\|筆記 \d+\]\]/);
+});
+
+// ---- 規劃圖 ----
+
+const inside = (inner, outer) =>
+  inner.x >= outer.x && inner.y >= outer.y && inner.x + inner.width <= outer.x + outer.width && inner.y + inner.height <= outer.y + outer.height;
+
+test("flow layout: phases top-to-bottom, steps left-to-right inside their group, nothing overlaps", () => {
+  const step = (leaves) => ({ size: { width: 320, height: 160 }, leaves: Array.from({ length: leaves }, () => ({ width: 320, height: 220 })) });
+  const out = flowLayout({ header: { width: 600, height: 160 }, phases: [{ steps: [step(1), step(0), step(2)] }, { steps: [step(0)] }, { steps: [step(3), step(1)] }] });
+
+  out.phases.forEach((phase, p) => {
+    phase.steps.forEach((s, i) => {
+      assert.ok(inside(s.box, phase.group), `step ${p}.${i} inside group`);
+      s.leaves.forEach((leaf) => assert.ok(inside(leaf, phase.group), "leaf inside group"));
+      if (i) assert.ok(s.box.x > phase.steps[i - 1].box.x, "steps go left to right");
+    });
+    if (p) assert.ok(phase.group.y >= out.phases[p - 1].group.y + out.phases[p - 1].group.height, "phases go top to bottom");
+  });
+  const boxes = [out.header, ...out.phases.flatMap((ph) => ph.steps.flatMap((s) => [s.box, ...s.leaves]))];
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) assert.ok(!overlaps(boxes[i], boxes[j]), `${i} vs ${j}`);
+});
+
+test("plan canvas: groups per phase, steps chained in order across phases, notes hang off their steps", async () => {
+  const vault = tempVault();
+  const a = note(vault, "旅遊/日本/北海道", "北海道懶人包", ["北海道"]);
+  const map = {
+    title: "北海道 5 天行程",
+    summary: "札幌進出，第 3 天往小樽",
+    phases: [
+      { title: "Day 1-2 札幌", steps: [{ title: "抵達新千歲", detail: "JR 到札幌", notes: [a] }, { title: "大通公園", detail: "", notes: [] }] },
+      { title: "Day 3 小樽", steps: [{ title: "小樽運河", detail: "", notes: ["不存在.md"] }] },
+    ],
+  };
+  const out = await createCanvasMaker({ vault, ai: fakeAi({ picks: [a], map, tool: "plan_map" }) }).plan("北海道 5 天");
+
+  assert.equal(out.path, "Canvas/規劃/北海道 5 天行程.canvas");
+  const json = JSON.parse(vault.readFile(out.path));
+  const groups = json.nodes.filter((n) => n.type === "group").map((g) => g.label);
+  assert.deepEqual(groups, ["Day 1-2 札幌", "Day 3 小樽"]);
+  const textId = (prefix) => json.nodes.find((n) => n.type === "text" && n.text.startsWith(prefix)).id;
+  const chain = [textId("**抵達新千歲**"), textId("**大通公園**"), textId("**小樽運河**")];
+  for (let i = 1; i < chain.length; i++) assert.ok(json.edges.some((e) => e.fromNode === chain[i - 1] && e.toNode === chain[i]), `step ${i} chained`);
+  const file = json.nodes.find((n) => n.type === "file");
+  assert.equal(file.file, a);
+  assert.ok(json.edges.some((e) => e.fromNode === chain[0] && e.toNode === file.id));
+  assert.deepEqual(out.usedNotes, [a]);
+});
+
+test("plan canvas works with no related notes", async () => {
+  const vault = tempVault();
+  const map = { title: "學 Rust", summary: "s", phases: [{ title: "基礎", steps: [{ title: "所有權", detail: "", notes: [] }] }] };
+  const out = await createCanvasMaker({ vault, ai: fakeAi({ picks: [], map, tool: "plan_map" }) }).plan("學 Rust");
+  assert.deepEqual(out.usedNotes, []);
+  assert.ok(JSON.parse(vault.readFile(out.path)).nodes.length >= 3);
 });
