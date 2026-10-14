@@ -7,7 +7,8 @@ import { createNoteStore } from "../src/noteStore.js";
 import { createCanvas } from "../src/canvasWriter.js";
 import { mindMapLayout, flowLayout, columnsLayout, clusterLayout } from "../src/canvasLayout.js";
 import { buildCatalog, selectRelevantNotes } from "../src/vaultCatalog.js";
-import { createCanvasMaker, MAX_CANVAS_NODES, researchOutline, existingRelations } from "../src/canvasMaker.js";
+import { createCanvasMaker, MAX_CANVAS_NODES, CANVAS_KINDS, researchOutline, existingRelations } from "../src/canvasMaker.js";
+import { notePathOfReply } from "../src/botCanvas.js";
 
 const tempVault = () => createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "canvas-test-")));
 const note = (vault, folder, title, tags = []) =>
@@ -416,4 +417,21 @@ test("relation canvas update follows notes moved to another folder", async () =>
   const json = t.read();
   assert.equal(json.nodes.find((n) => n.id === bId).file, newPath);
   assert.equal(json.nodes.filter((n) => n.file === newPath).length, 1, "moved note is not added again");
+});
+
+// ---- 自動判斷類型、回覆筆記 ----
+
+test("pickKind only returns one of the four kinds and falls back to explain", async () => {
+  const vault = tempVault();
+  const maker = (answer) => createCanvasMaker({ vault, ai: { askJson: answer } });
+  for (const kind of CANVAS_KINDS) assert.equal(await maker(async () => ({ kind })).pickKind("q"), kind);
+  assert.equal(await maker(async () => ({ kind: "pie_chart" })).pickKind("q"), "explain");
+  assert.equal(await maker(async () => ({})).pickKind("q"), "explain");
+  assert.equal(await maker(async () => { throw new Error("boom"); }).pickKind("q"), "explain");
+});
+
+test("notePathOfReply reads the saved note path from a bot reply", () => {
+  assert.equal(notePathOfReply({ text: "✅ 已存進 Obsidian\n標題：A\n檔名：技術/前端框架/Vue/A b.md\n摘要：s" }), "技術/前端框架/Vue/A b.md");
+  assert.equal(notePathOfReply({ text: "隨便一則訊息" }), null);
+  assert.equal(notePathOfReply(undefined), null);
 });

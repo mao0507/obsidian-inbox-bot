@@ -197,6 +197,7 @@ export function startBot() {
         "/ask 北海道有什麼景點",
         "想看目前有哪些分類、點進去瀏覽文章，用 /browse。",
         "整理：/cards 合併重複的概念卡、/tags 看與合併 tag。",
+        "畫圖：/canvas 問題 會畫成 Obsidian Canvas（說明圖、規劃圖、關聯圖、研究總覽），回覆已存的筆記訊息傳 /canvas 就針對那篇畫。",
         "管理：/status 看狀態、/sync 同步 git、/logs 看 log、/restart 重啟、/migrate 舊筆記重建。",
         NOTEBOOKLM_ENABLED
           ? "想針對一個主題做真正的網路研究（不是查現有筆記，是查新資料），用 /notebook 加上主題，例如：\n/notebook 台灣離岸風電現況"
@@ -412,7 +413,7 @@ export function startBot() {
     ...(NOTEBOOKLM_ENABLED
       ? [{ command: "notebook", description: "用 NotebookLM 做研究，存進 Obsidian" }]
       : []),
-    { command: "canvas", description: "畫成 Obsidian Canvas（/canvas 說明 主題）" },
+    { command: "canvas", description: "畫成 Obsidian Canvas（說明/規劃/關聯/研究，或直接問）" },
     { command: "cards", description: "找出並合併重複的概念卡" },
     { command: "tags", description: "看 tag 使用量、合併重複的 tag" },
     { command: "status", description: "目前狀態：佇列、筆記數、重建進度" },

@@ -152,6 +152,7 @@ CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON�
 | `/ask 問題` | 從已存的筆記找資料回答 |
 | `/browse` | 瀏覽分類與筆記 |
 | `/notebook 主題` | NotebookLM 深度研究（先確認研究計畫） |
+| `/canvas 問題` | 畫成 Obsidian Canvas（存在 vault 的 `Canvas/`），見下方「畫成 Obsidian Canvas」 |
 | `/cards` | AI 找出重複的概念卡，每組按「合併／略過」 |
 | `/tags` | 看 tag 使用量；`/tags merge 舊 新` 把一個 tag 併進另一個（搬資料夾、改連結、舊名變別名） |
 | `/status` | 佇列、vault 筆記數、工具、舊筆記重建進度 |
@@ -161,6 +162,21 @@ CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON�
 | `/migrate` | 舊筆記重建進度；`/migrate retry` 重跑失敗的組、`/migrate finalize` 收尾已完成的組 |
 | `/notebooklm_login` | 在跑 bot 的電腦上開瀏覽器重新登入 NotebookLM |
 | `/whoami` | 查自己的 Telegram user ID |
+
+## 畫成 Obsidian Canvas（/canvas）
+
+從 vault 找出相關筆記，整理成一張 Canvas（一張最多 30 個節點，放不下的列在「延伸閱讀」）。產生完回覆檔案路徑，在 Obsidian 按 Ctrl+O 貼上檔名開啟。
+
+| 寫法 | 畫出來的圖 | 存在 |
+|---|---|---|
+| `/canvas 問題` | AI 判斷最適合哪一種，只畫一張，回覆會標出選了哪一種 | 依類型 |
+| `/canvas 說明 主題` | 心智圖：中心是主題，分支是重點，掛上出處筆記 | `Canvas/說明/` |
+| `/canvas 規劃 目標` | 流程圖：分階段、步驟依序連起來 | `Canvas/規劃/` |
+| `/canvas 關聯 主題` | 關聯圖：相關筆記與概念卡依資料夾分群；AI 判斷的關係是彩色帶標籤的線 | `Canvas/關聯/` |
+| `/canvas 研究 主題` | 研究總覽：研究問題 → 角度 → 概念卡與來源網址 | `Canvas/研究/` |
+| 回覆「已存進 Obsidian」的訊息傳 `/canvas` | 以那篇筆記為中心的說明圖 | `Canvas/說明/` |
+
+說明、規劃、研究圖每次都另存新檔；**關聯圖檔名固定**，同主題再跑一次會增量更新：你在 Obsidian 拖過的位置、自己加的卡片和連線都保留，新筆記放進「新增」群組框，刪掉的筆記會移除，搬家的筆記會改指向新路徑。
 
 ## 從已收錄的筆記查詢資料（/ask）
 

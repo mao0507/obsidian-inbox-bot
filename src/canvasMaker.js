@@ -16,6 +16,27 @@ const MAX_BRANCHES = 6;
 const MAX_PHASES = 6;
 const MAX_STEPS = 16; // 規劃圖所有階段加起來的步驟上限
 
+// /canvas 沒指定類型時，讓 AI 判斷畫哪一種（值是 createCanvasMaker 回傳的方法名稱）
+export const CANVAS_KINDS = ["explain", "plan", "relate", "research"];
+const DEFAULT_KIND = "explain";
+const KIND_TOOL = {
+  name: "pick_canvas_kind",
+  description: "判斷使用者的問題最適合畫成哪一種圖",
+  input_schema: {
+    type: "object",
+    properties: {
+      kind: {
+        type: "string",
+        enum: CANVAS_KINDS,
+        description:
+          "explain：解釋一個概念怎麼運作、是什麼；plan：要安排、規劃、排行程、達成目標的步驟；" +
+          "relate：想看某個主題相關的筆記有哪些、彼此怎麼關聯；research：想看已做過的研究整理",
+      },
+    },
+    required: ["kind"],
+  },
+};
+
 const stringList = (description) => ({ type: "array", items: { type: "string" }, description });
 const notesField = stringList("支持這個項目的筆記路徑（原樣照抄提供的路徑）；沒有就給空陣列");
 
@@ -196,6 +217,7 @@ function allocateLeaves(noteLists, budget) {
 export function createCanvasMaker({ vault, ai }) {
   // 挑出相關筆記並讀內文；focusPath（回覆某篇筆記時）一定放在第一個
   async function gatherNotes(topic, { focusPath } = {}) {
+    if (focusPath && vault.readFile(focusPath) === null) throw new Error(`找不到筆記 ${focusPath}（可能已搬家或刪除），改用 /canvas 說明 主題`);
     const picks = await selectRelevantNotes(ai, buildCatalog(vault), topic);
     const paths = focusPath ? [focusPath, ...picks.filter((p) => p !== focusPath)] : picks;
     return paths.map((p) => vault.readNote(p));
@@ -252,6 +274,21 @@ export function createCanvasMaker({ vault, ai }) {
   }
 
   return {
+    /** 判斷問題適合哪一種圖；AI 失敗或回了奇怪的值就退回說明圖 */
+    async pickKind(question) {
+      try {
+        const { kind } = await ai.askJson({
+          system: "你在幫使用者決定要把問題畫成哪一種 Obsidian Canvas。只選一種。",
+          user: question,
+          tool: KIND_TOOL,
+        });
+        return CANVAS_KINDS.includes(kind) ? kind : DEFAULT_KIND;
+      } catch (err) {
+        console.error("判斷 canvas 類型失敗，改用說明圖：", err?.message || err);
+        return DEFAULT_KIND;
+      }
+    },
+
     /**
      * 說明圖：中心是主題摘要，往外是各面向（重點文字卡），每個面向連到支持它的筆記卡。
      * @returns {{ path, title, summary, usedNotes: string[] }}
