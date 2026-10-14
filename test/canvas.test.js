@@ -5,9 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { createNoteStore } from "../src/noteStore.js";
 import { createCanvas } from "../src/canvasWriter.js";
-import { mindMapLayout, flowLayout, columnsLayout } from "../src/canvasLayout.js";
+import { mindMapLayout, flowLayout, columnsLayout, clusterLayout } from "../src/canvasLayout.js";
 import { buildCatalog, selectRelevantNotes } from "../src/vaultCatalog.js";
-import { createCanvasMaker, MAX_CANVAS_NODES, researchOutline } from "../src/canvasMaker.js";
+import { createCanvasMaker, MAX_CANVAS_NODES, researchOutline, existingRelations } from "../src/canvasMaker.js";
 
 const tempVault = () => createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "canvas-test-")));
 const note = (vault, folder, title, tags = []) =>
@@ -269,4 +269,84 @@ test("research canvas without related research explains what to do instead", asy
   note(vault, "技術/前端框架/Vue", "不是研究", ["Vue"]);
   const ai = { askJson: async () => ({ paths: [] }) };
   await assert.rejects(createCanvasMaker({ vault, ai }).research("grill-me"), /\/notebook[\s\S]*\/canvas 說明/);
+});
+
+// ---- 關聯圖 ----
+
+test("cluster layout: centre on top, clusters as non-overlapping groups containing their items", () => {
+  const items = (n) => Array.from({ length: n }, () => ({ width: 360, height: 220 }));
+  const out = clusterLayout({ center: { width: 500, height: 160 }, clusters: [items(3), items(1), items(5), items(2)] });
+  const boxes = [out.center, ...out.clusters.flatMap((c) => c.items)];
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) assert.ok(!overlaps(boxes[i], boxes[j]));
+  out.clusters.forEach((c) => c.items.forEach((b) => assert.ok(inside(b, c.group))));
+  for (let i = 0; i < out.clusters.length; i++)
+    for (let j = i + 1; j < out.clusters.length; j++) assert.ok(!overlaps(out.clusters[i].group, out.clusters[j].group));
+  out.clusters.forEach((c) => assert.ok(c.group.y > out.center.y + out.center.height));
+});
+
+function relationVault() {
+  const vault = tempVault();
+  vault.writeFile("卡片/Proxy.md", "---\ntitle: Proxy\ntype: card\n---\n\n# Proxy\n\n說明\n");
+  const a = vault.writeNote({ folder: "技術/前端框架/Vue", title: "Vue 響應式", tags: ["Vue"], cards: ["Proxy"], summary: "s", body: "內文\n\n## 相關筆記\n\n- [[技術/前端框架/Vue/Vue Composables|Vue Composables]]", type: "note", sourceChannel: "t" }).relativePath;
+  const b = note(vault, "技術/前端框架/Vue", "Vue Composables", ["Vue"]);
+  const c = note(vault, "技術/語言基礎/JavaScript", "JS Proxy 物件", ["JavaScript"]);
+  return { vault, a, b, c, card: "卡片/Proxy.md" };
+}
+
+test("existing relations: wikilinks between picked notes and note → card", () => {
+  const { vault, a, b, c, card } = relationVault();
+  const rels = existingRelations([a, b, c, card].map((p) => vault.readNote(p)));
+  assert.deepEqual(
+    rels.map((r) => `${r.from}->${r.to}`).sort(),
+    [`${a}->${b}`, `${a}->${card}`].sort()
+  );
+});
+
+test("relation canvas: groups by folder, thin existing edges, coloured labelled AI edges between real nodes, fixed filename", async () => {
+  const { vault, a, b, c, card } = relationVault();
+  const map = {
+    title: "Vue 響應式關聯",
+    summary: "s",
+    relations: [
+      { from: a, to: b, label: "延伸" }, // 已有既有連結 -> 升級成帶標籤
+      { from: c, to: a, label: "實作基礎" },
+      { from: a, to: "不存在.md", label: "x" },
+      { from: a, to: a, label: "自己" },
+    ],
+  };
+  const ai = { askJson: async (input) => (input.tool.name === "select_notes" ? { paths: [a, b, c, card] } : map) };
+
+  const out = await createCanvasMaker({ vault, ai }).relate("Vue");
+
+  assert.equal(out.path, "Canvas/關聯/Vue 關聯圖.canvas");
+  const json = JSON.parse(vault.readFile(out.path));
+  const groups = json.nodes.filter((n) => n.type === "group").map((g) => g.label).sort();
+  assert.deepEqual(groups, ["概念卡", "技術/前端框架/Vue", "技術/語言基礎/JavaScript"].sort());
+  const id = (file) => json.nodes.find((n) => n.file === file).id;
+  const edge = (from, to) => json.edges.filter((e) => e.fromNode === id(from) && e.toNode === id(to));
+  assert.equal(edge(a, b).length, 1, "no duplicate edge for the same pair");
+  assert.equal(edge(a, b)[0].label, "延伸");
+  assert.ok(edge(a, b)[0].color, "AI edges are coloured");
+  assert.equal(edge(c, a)[0].label, "實作基礎");
+  assert.ok(!edge(a, card)[0].label && !edge(a, card)[0].color, "existing-only edge stays plain");
+  assert.equal(json.edges.length, 3);
+});
+
+test("relation canvas stays within the node cap when notes are spread over many folders", async () => {
+  const vault = tempVault();
+  const paths = Array.from({ length: 22 }, (_, i) => note(vault, `技術/前端框架/T${i}`, `筆記${i}`, [`T${i}`]));
+  const ai = { askJson: async (input) => (input.tool.name === "select_notes" ? { paths } : { title: "t", summary: "s", relations: [] }) };
+  const out = await createCanvasMaker({ vault, ai }).relate("x");
+  const json = JSON.parse(vault.readFile(out.path));
+  assert.ok(json.nodes.length <= MAX_CANVAS_NODES, `${json.nodes.length} nodes`);
+  assert.ok(json.nodes.some((n) => n.type === "text" && n.text.startsWith("## 延伸閱讀")));
+});
+
+test("relation canvas skips plain links inside the same group (the group already says they belong together)", async () => {
+  const vault = tempVault();
+  const b = note(vault, "技術/前端框架/Vue", "B", ["Vue"]);
+  const a = vault.writeNote({ folder: "技術/前端框架/Vue", title: "A", tags: ["Vue"], summary: "s", body: "見 [[技術/前端框架/Vue/B|B]]", type: "note", sourceChannel: "t" }).relativePath;
+  const ai = { askJson: async (input) => (input.tool.name === "select_notes" ? { paths: [a, b] } : { title: "t", summary: "s", relations: [] }) };
+  const out = await createCanvasMaker({ vault, ai }).relate("y");
+  assert.equal(JSON.parse(vault.readFile(out.path)).edges.length, 0);
 });

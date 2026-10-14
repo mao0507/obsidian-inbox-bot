@@ -94,6 +94,53 @@ export function columnsLayout({ rows }) {
   };
 }
 
+const CLUSTERS_PER_ROW = 3;
+const ITEMS_PER_CLUSTER_ROW = 2;
+
+/**
+ * 分群（關聯圖）：中心卡在最上方；每一群一個群組框，群組框以每列 3 個的格狀排在下方；
+ * 群內的卡片以每列 2 張的格狀排列。群與群、卡與卡都不重疊，手機上也好讀。
+ *
+ * @param {{ center: {width,height}, clusters: Array<Array<{width,height}>> }} input
+ * @returns {{ center: Box, clusters: Array<{ group: Box, items: Box[] }> }}
+ */
+export function clusterLayout({ center, clusters }) {
+  const centerBox = { x: -center.width / 2, y: 0, width: center.width, height: center.height };
+
+  // 先算每一群的大小與群內相對位置
+  const shapes = clusters.map((items) => {
+    const cellW = Math.max(0, ...items.map((i) => i.width));
+    const cellH = Math.max(0, ...items.map((i) => i.height));
+    const cols = Math.min(ITEMS_PER_CLUSTER_ROW, Math.max(1, items.length));
+    const rows = Math.ceil(items.length / cols);
+    const width = cols * cellW + (cols - 1) * GAP_X + GROUP_PADDING * 2;
+    const height = rows * cellH + Math.max(0, rows - 1) * GAP_Y + GROUP_PADDING * 2 + GROUP_LABEL_SPACE;
+    const offsets = items.map((item, i) => ({
+      dx: GROUP_PADDING + (i % cols) * (cellW + GAP_X) + (cellW - item.width) / 2,
+      dy: GROUP_PADDING + GROUP_LABEL_SPACE + Math.floor(i / cols) * (cellH + GAP_Y),
+      ...item,
+    }));
+    return { width, height, offsets };
+  });
+
+  // 再把群組框排成格狀，每列水平置中
+  const result = new Array(clusters.length);
+  let y = centerBox.height + ROW_GAP_Y;
+  for (let start = 0; start < shapes.length; start += CLUSTERS_PER_ROW) {
+    const row = shapes.slice(start, start + CLUSTERS_PER_ROW);
+    const rowWidth = row.reduce((w, s) => w + s.width, 0) + (row.length - 1) * GAP_X;
+    let x = -rowWidth / 2;
+    row.forEach((shape, k) => {
+      const group = { x, y, width: shape.width, height: shape.height };
+      const items = shape.offsets.map((o) => ({ x: x + o.dx, y: y + o.dy, width: o.width, height: o.height }));
+      result[start + k] = { group, items };
+      x += shape.width + GAP_X;
+    });
+    y += Math.max(...row.map((s) => s.height)) + ROW_GAP_Y;
+  }
+  return { center: centerBox, clusters: result };
+}
+
 /**
  * 心智圖：中心在中間，分支輪流放右、左兩側並各自由上往下堆疊，每個分支的葉子（筆記卡）放在它外側那一欄。
  * 每個分支佔一個區塊（高度 = 分支卡與其葉子較高者），區塊之間不重疊，所以整張圖保證不重疊。

@@ -1,5 +1,5 @@
 import { createCanvas, textCardSize } from "./canvasWriter.js";
-import { mindMapLayout, flowLayout, columnsLayout } from "./canvasLayout.js";
+import { mindMapLayout, flowLayout, columnsLayout, clusterLayout } from "./canvasLayout.js";
 import { buildCatalog, selectRelevantNotes } from "./vaultCatalog.js";
 import { titleToFilename, wikiLink } from "./noteStore.js";
 
@@ -88,6 +88,64 @@ const MAX_RESEARCH_SHOWN = 2;
 const MAX_ANGLES = 7;
 const MAX_SOURCES = 4;
 const URL_PATTERN = /https?:\/\/[^\s)\]>"'，。]+/g;
+
+// 關聯圖：AI 判斷的關係用這個顏色（Obsidian 色號 4 = 綠）並加標籤；vault 既有的關係是預設顏色、無標籤
+const AI_RELATION_COLOR = "4";
+const MAX_RELATION_NOTES = 22;
+const CARD_GROUP = "概念卡";
+
+const pairKey = (a, b) => [a, b].sort().join("\u0000");
+const folderOf = (relPath) => relPath.slice(0, relPath.lastIndexOf("/"));
+
+/**
+ * 一組筆記之間 vault 裡既有的關係（不需要 AI）：筆記內文裡的 [[連結]]（含相關筆記區塊）、筆記 → 它的概念卡。
+ * 只回傳兩端都在這組筆記裡的關係；同一對只算一次。
+ */
+export function existingRelations(notes) {
+  const byKey = new Map();
+  for (const n of notes) {
+    byKey.set(n.path.replace(/\.md$/, ""), n.path);
+    byKey.set(n.path.slice(n.path.lastIndexOf("/") + 1).replace(/\.md$/, ""), n.path);
+  }
+  const seen = new Set();
+  const relations = [];
+  const add = (from, to) => {
+    if (!to || from === to || seen.has(pairKey(from, to))) return;
+    seen.add(pairKey(from, to));
+    relations.push({ from, to });
+  };
+  for (const n of notes) {
+    for (const m of n.body.matchAll(/\[\[([^\]|#]+)/g)) add(n.path, byKey.get(m[1].trim().replace(/\.md$/, "")));
+    for (const card of n.frontmatter?.cards || []) add(n.path, byKey.get(`卡片/${card}`));
+  }
+  return relations;
+}
+
+const RELATE_TOOL = {
+  name: "relation_map",
+  description: "整理一組筆記之間的關係",
+  input_schema: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "這張關聯圖的標題（繁體中文，20 字以內）" },
+      summary: { type: "string", description: "1~2 句話說明這些筆記整體的關係脈絡" },
+      relations: {
+        type: "array",
+        description: "筆記之間有意義的關係（最多 15 條），只連真的有關的",
+        items: {
+          type: "object",
+          properties: {
+            from: { type: "string", description: "筆記路徑（原樣照抄）" },
+            to: { type: "string", description: "筆記路徑（原樣照抄）" },
+            label: { type: "string", description: "關係（2~6 字，不要加括號說明），例如：依賴、比較、延伸、實作、前置知識、替代方案" },
+          },
+          required: ["from", "to", "label"],
+        },
+      },
+    },
+    required: ["title", "summary", "relations"],
+  },
+};
 
 /**
  * 從研究筆記擷取研究總覽要的資料（不需要 AI）：
@@ -292,6 +350,78 @@ export function createCanvasMaker({ vault, ai }) {
 
       const path = save("規劃", map.title || goal, canvas);
       return { path, title: map.title, summary: map.summary, usedNotes: [...placed] };
+    },
+
+    /**
+     * 關聯圖：相關的筆記與概念卡依資料夾分群；vault 既有的關係畫成無標籤的線，
+     * AI 判斷的關係畫成彩色、帶標籤的線（同一對已有既有關係時升級成帶標籤，不重複畫）。
+     * 檔名依主題固定（Canvas/關聯/<主題> 關聯圖.canvas），之後可以增量更新。
+     * @returns {{ path, title, summary, usedNotes: string[] }}
+     */
+    async relate(topic) {
+      const allPicks = await selectRelevantNotes(ai, buildCatalog(vault), topic, { max: MAX_RELATION_NOTES });
+      // 節點上限：中心 + 群組框 + 筆記 + 延伸閱讀；超過就把最不相關的（挑選順序最後的）移到延伸閱讀
+      const groupCount = (paths) => new Set(paths.map((p) => (p.startsWith("卡片/") ? CARD_GROUP : folderOf(p)))).size;
+      let picks = allPicks;
+      while (picks.length && 1 + groupCount(picks) + picks.length + 1 > MAX_CANVAS_NODES) picks = picks.slice(0, -1);
+      const notes = picks.map((p) => vault.readNote(p));
+      const known = new Set(picks);
+      const brief = notes.map((n) => `【${n.path}】${n.title}：${(n.summary || n.body).replace(/\s+/g, " ").slice(0, 300)}`).join("\n");
+      const map = await ai.askJson({
+        system:
+          "你在幫使用者畫筆記之間的關聯圖。只連真的有意義的關係，標籤要具體（例如：依賴、比較、延伸、實作、前置知識）。" +
+          "from / to 只能填提供的筆記路徑。用繁體中文。",
+        user: `主題：${topic}\n\n筆記：\n${brief || "（沒有相關筆記）"}`,
+        tool: RELATE_TOOL,
+      });
+
+      // 合併兩種關係：同一對以 AI 的標籤為準
+      const edges = new Map();
+      for (const r of existingRelations(notes)) edges.set(pairKey(r.from, r.to), { ...r });
+      for (const r of map.relations || []) {
+        if (!known.has(r.from) || !known.has(r.to) || r.from === r.to || !r.label) continue;
+        edges.set(pairKey(r.from, r.to), { from: r.from, to: r.to, label: String(r.label).trim(), color: AI_RELATION_COLOR });
+      }
+
+      // 依資料夾分群（概念卡一群），群的順序依第一篇被挑中的順序（越相關越前面）
+      const clusters = new Map();
+      for (const n of notes) {
+        const label = n.frontmatter?.type === "card" ? CARD_GROUP : folderOf(n.path);
+        if (!clusters.has(label)) clusters.set(label, []);
+        clusters.get(label).push(n.path);
+      }
+      const labels = [...clusters.keys()];
+      const centerText = `# ${map.title || topic}\n\n${map.summary || ""}`;
+      const layout = clusterLayout({
+        center: textCardSize(centerText, 500),
+        clusters: labels.map((l) => clusters.get(l).map(() => FILE_CARD)),
+      });
+
+      const canvas = createCanvas();
+      canvas.addText({ text: centerText, color: "6", ...layout.center });
+      const nodeOf = new Map();
+      layout.clusters.forEach(({ group, items }, i) => {
+        canvas.addGroup({ label: labels[i], ...group });
+        items.forEach((box, j) => {
+          const file = clusters.get(labels[i])[j];
+          nodeOf.set(file, canvas.addFile({ file, ...box }));
+        });
+      });
+      // 同一群裡的既有連結不畫：同資料夾的筆記本來就互相連「相關筆記」，畫出來會糊成一團，群組框已經表達了這層關係
+      const groupOf = new Map(labels.flatMap((l) => clusters.get(l).map((p) => [p, l])));
+      const drawn = [...edges.values()].filter((e) => e.label || groupOf.get(e.from) !== groupOf.get(e.to));
+      for (const e of drawn) canvas.addEdge({ from: nodeOf.get(e.from), to: nodeOf.get(e.to), label: e.label, color: e.color });
+      addFurtherReading(canvas, allPicks.slice(picks.length), [layout.center, ...layout.clusters.map((c) => c.group)]);
+
+      const path = `${CANVAS_ROOT}/關聯/${titleToFilename(`${topic} 關聯圖`)}.canvas`;
+      vault.writeFile(path, `${JSON.stringify(canvas.toJSON(), null, 2)}\n`);
+      const aiCount = drawn.filter((e) => e.label).length;
+      return {
+        path,
+        title: map.title || topic,
+        summary: `${map.summary || ""}（${drawn.length} 條關係，其中 ${aiCount} 條由 AI 判斷）`.trim(),
+        usedNotes: picks,
+      };
     },
 
     /**
