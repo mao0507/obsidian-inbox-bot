@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createNoteStore } from "../src/noteStore.js";
 import { mergeCards, findDuplicateCards } from "../src/cardMerge.js";
-import { mergeTags, tagUsage } from "../src/tagMerge.js";
+import { mergeTags, tagUsage, findSimilarTags } from "../src/tagMerge.js";
 import { createTagVocabulary } from "../src/tagVocabulary.js";
 
 const tempVault = () => createNoteStore(fs.mkdtempSync(path.join(os.tmpdir(), "tools-test-")));
@@ -96,4 +96,26 @@ test("mergeTags retags notes, moves the tag folder, rewrites links, keeps the ol
 test("mergeTags refuses unknown tags", () => {
   const vault = tempVault();
   assert.throws(() => mergeTags(vault, "沒有這個", "Vue"), /找不到 tag/);
+});
+
+test("findSimilarTags keeps only real, non-overlapping groups and shows the AI usage and placement", async () => {
+  const vault = tempVault();
+  note(vault, "技術/前端框架/Vue", "x", { tags: ["Vue", "Vuejs"] });
+  note(vault, "技術/前端框架/Vue", "y", { tags: ["Vue", "Vue3", "Pinia"] });
+  let prompt = "";
+  const ai = {
+    askJson: async ({ user }) => {
+      prompt = user;
+      return {
+        groups: [
+          { keep: "Vue", merge: ["Vuejs", "Vue3", "Vue", "不存在"], reason: "同一個框架" },
+          { keep: "Vue3", merge: ["Pinia"], reason: "已被上一組用掉" },
+          { keep: "不存在", merge: ["Pinia"], reason: "keep 不存在" },
+          { keep: "Pinia", merge: [], reason: "沒東西可併" },
+        ],
+      };
+    },
+  };
+  assert.deepEqual(await findSimilarTags(vault, ai), [{ keep: "Vue", merge: ["Vuejs", "Vue3"], reason: "同一個框架" }]);
+  assert.match(prompt, /Vue（2）｜技術\/前端框架/);
 });

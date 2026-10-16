@@ -251,8 +251,7 @@ export function createCanvasMaker({ vault, ai }) {
   function updateRelationCanvas({ path, old, catalog, picks, edges, title }) {
     const resolve = notePathResolver(catalog);
     const result = mergeRelationCanvas(old, { resolve, picks, relations: [...edges.values()], cardSize: FILE_CARD, budget: MAX_CANVAS_NODES });
-    vault.writeFile(path, `${JSON.stringify(result.canvas, null, 2)}
-`);
+    vault.writeFile(path, `${JSON.stringify(result.canvas, null, 2)}\n`);
     const changes = [
       `新增 ${result.added.length} 篇`,
       result.moved && `${result.moved} 篇改指向新路徑`,

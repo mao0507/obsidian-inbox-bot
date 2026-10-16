@@ -154,7 +154,7 @@ CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON�
 | `/notebook 主題` | NotebookLM 深度研究（先確認研究計畫） |
 | `/canvas 問題` | 畫成 Obsidian Canvas（存在 vault 的 `Canvas/`），見下方「畫成 Obsidian Canvas」 |
 | `/cards` | AI 找出重複的概念卡，每組按「合併／略過」 |
-| `/tags` | 看 tag 使用量；`/tags merge 舊 新` 把一個 tag 併進另一個（搬資料夾、改連結、舊名變別名） |
+| `/tags` | 看 tag 使用量；`/tags merge 舊 新` 把一個 tag 併進另一個（搬資料夾、改連結、舊名變別名）；`/tags similar` 讓 AI 找寫法不同的同一個 tag，每組按「合併／略過」 |
 | `/status` | 佇列、vault 筆記數、工具、舊筆記重建進度 |
 | `/sync` | 立刻把 vault 同步到 git |
 | `/logs` | 最近 30 行 log（`/logs error` 只看錯誤；需用 pm2 執行） |
