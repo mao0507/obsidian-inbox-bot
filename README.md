@@ -160,6 +160,7 @@ CLI 模式呼叫失敗（逾時、指令不存在、輸出不是預期的 JSON�
 | `/sync` | 立刻把 vault 同步到 git |
 | `/logs` | 最近 30 行 log（`/logs error` 只看錯誤；需用 pm2 執行） |
 | `/restart` | 重新啟動 bot（pm2 會自動帶回來；佇列有任務時要 `/restart force`） |
+| `/update` | 從 GitHub 拉最新程式（只快轉；依賴有變會 `pnpm install`）並重啟；佇列有任務時要 `/update force` |
 | `/migrate` | 舊筆記重建進度；`/migrate retry` 重跑失敗的組、`/migrate finalize` 收尾已完成的組 |
 | `/notebooklm_login` | 在跑 bot 的電腦上開瀏覽器重新登入 NotebookLM |
 | `/whoami` | 查自己的 Telegram user ID |

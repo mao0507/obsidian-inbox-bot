@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import { TAXONOMY } from "./taxonomy.js";
+import { selfUpdate } from "./selfUpdate.js";
 
-// 管理類 Telegram 指令：/status、/sync、/logs、/restart、/migrate。
+// 管理類 Telegram 指令：/status、/sync、/logs、/restart、/update、/migrate。
 // 讓不在電腦前（沒開專案、不能下 pnpm 指令）的時候也能查狀態、同步、看 log、重啟、處理舊筆記重建。
 // 這支不 import config / app：依賴由 bot.js 傳進來；文字格式化是純函式，有測試。
 
@@ -146,6 +147,38 @@ export function registerAdminCommands(bot, { vault, migration, loadMigrationStat
     await ctx.reply("♻️ 重新啟動中，幾秒後就回來（pm2 會自動把 bot 帶起來）");
     // 結束程序交給 pm2 重啟；稍等一下讓上面的訊息送出去
     setTimeout(() => process.exit(0), 1500);
+  });
+
+  bot.command("update", async (ctx) => {
+    if (!underPm2) {
+      await ctx.reply("bot 不是用 pm2 執行的，更新後不會自動重啟，請在電腦上 git pull 再重啟。");
+      return;
+    }
+    const busy = lanes.intake.size() + lanes.research.size();
+    if (busy && !/force/i.test(ctx.message.text)) {
+      await ctx.reply(`⚠️ 佇列裡還有 ${busy} 個任務，更新後重啟會中斷它們。確定要更新請傳 /update force`);
+      return;
+    }
+    await ctx.reply("⬇️ 從 GitHub 拉最新版中...");
+    try {
+      const { updated, commits, installed } = await selfUpdate();
+      if (!updated) {
+        await ctx.reply("✅ 已經是最新版，不用重啟");
+        return;
+      }
+      await ctx.reply(
+        [
+          `✅ 更新了 ${commits.length} 個 commit${installed ? "（依賴有變，已重新安裝）" : ""}：`,
+          ...commits.slice(0, 15).map((c) => `・${c}`),
+          "",
+          "♻️ 重新啟動中，幾秒後就回來",
+        ].join("\n")
+      );
+      setTimeout(() => process.exit(0), 1500);
+    } catch (err) {
+      console.error(err);
+      await ctx.reply(`❌ 更新失敗（沒有重啟，bot 照舊執行）：${String(err?.message || err)}`);
+    }
   });
 
   bot.command("migrate", async (ctx) => {

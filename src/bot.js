@@ -198,7 +198,7 @@ export function startBot() {
         "想看目前有哪些分類、點進去瀏覽文章，用 /browse。",
         "整理：/cards 合併重複的概念卡、/tags 看與合併 tag、回覆已存的筆記訊息傳 /rebuild 用原網址重新整理那篇。",
         "畫圖：/canvas 問題 會畫成 Obsidian Canvas（說明圖、規劃圖、關聯圖、研究總覽），回覆已存的筆記訊息傳 /canvas 就針對那篇畫。",
-        "管理：/status 看狀態、/sync 同步 git、/logs 看 log、/restart 重啟、/migrate 舊筆記重建。",
+        "管理：/status 看狀態、/sync 同步 git、/logs 看 log、/restart 重啟、/update 更新程式、/migrate 舊筆記重建。",
         NOTEBOOKLM_ENABLED
           ? "想針對一個主題做真正的網路研究（不是查現有筆記，是查新資料），用 /notebook 加上主題，例如：\n/notebook 台灣離岸風電現況"
           : null,
@@ -421,6 +421,7 @@ export function startBot() {
     { command: "sync", description: "立刻把 vault 同步到 git" },
     { command: "logs", description: "最近的 log（/logs error 只看錯誤）" },
     { command: "restart", description: "重新啟動 bot" },
+    { command: "update", description: "從 GitHub 更新 bot 程式並重啟" },
     { command: "migrate", description: "舊筆記重建進度、重跑、收尾" },
     { command: "whoami", description: "查詢自己的 Telegram user ID" },
   ];
