@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { exec, execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 // /update：在跑 bot 的電腦上把專案更新到 GitHub 上的最新版（git pull --ff-only），
@@ -12,11 +12,14 @@ const COMMAND_TIMEOUT_MS = 5 * 60 * 1000;
 /** 預設的指令執行器：回傳 stdout；失敗時錯誤訊息帶 stderr。 */
 export function runCommand(command, args, { cwd = PROJECT_ROOT } = {}) {
   return new Promise((resolve, reject) => {
-    // Windows 上 pnpm 是 .cmd，要透過 shell 才找得到；參數都是寫死的，沒有使用者輸入
-    execFile(command, args, { cwd, timeout: COMMAND_TIMEOUT_MS, shell: process.platform === "win32" }, (err, stdout, stderr) => {
+    const done = (err, stdout, stderr) => {
       if (err) reject(new Error(`${command} ${args.join(" ")} 失敗：${(stderr || stdout || err.message).trim().slice(-800)}`));
       else resolve(stdout);
-    });
+    };
+    const options = { cwd, timeout: COMMAND_TIMEOUT_MS };
+    // Windows 上 pnpm 是 .cmd，只能透過 shell 執行；參數都是寫死的，沒有使用者輸入
+    if (process.platform === "win32" && command === "pnpm") exec([command, ...args].join(" "), options, done);
+    else execFile(command, args, options, done);
   });
 }
 
