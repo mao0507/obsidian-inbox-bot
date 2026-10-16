@@ -435,3 +435,15 @@ test("notePathOfReply reads the saved note path from a bot reply", () => {
   assert.equal(notePathOfReply({ text: "隨便一則訊息" }), null);
   assert.equal(notePathOfReply(undefined), null);
 });
+
+test("relation canvas update links new notes to old notes that moved", async () => {
+  const t = await relationCanvasEditedByUser();
+  // a 連到 b（既有連結）；b 搬家後，新挑到的 a 以外沒有 b，但舊圖上的 b 仍要能跟新筆記 d 連起來
+  const newB = t.vault.moveNote(t.b, "技術/前端框架/Vue3");
+  const d = t.vault.writeNote({ folder: "技術/其他", title: "D", tags: [], summary: "s", body: "見 [[技術/前端框架/Vue3/Vue Composables|Vue Composables]]", type: "note", sourceChannel: "t" }).relativePath;
+  t.setPicks([t.a, d]);
+  await t.maker.relate("Vue");
+  const json = t.read();
+  const id = (file) => json.nodes.find((n) => n.file === file).id;
+  assert.ok(json.edges.some((e) => [e.fromNode, e.toNode].sort().join() === [id(d), id(newB)].sort().join()));
+});

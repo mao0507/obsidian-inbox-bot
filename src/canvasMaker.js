@@ -242,10 +242,14 @@ export function createCanvasMaker({ vault, ai }) {
     canvas.addText({ text, x: -size.width / 2, y: bottomOf(boxes) + 120, ...size });
   }
 
-  function updateRelationCanvas({ path, old, catalog, picks, edges, title }) {
-    // 筆記不在原路徑：用檔名找搬家後的位置（tag 合併、重新分類只換資料夾不改檔名）
+  // 筆記不在原路徑：用檔名找搬家後的位置（tag 合併、重新分類只換資料夾不改檔名）；找不到回 null
+  function notePathResolver(catalog) {
     const byName = new Map(catalog.map((n) => [basenameOf(n.path), n.path]));
-    const resolve = (p) => (vault.readFile(p) !== null ? p : byName.get(basenameOf(p)) ?? null);
+    return (p) => (vault.readFile(p) !== null ? p : byName.get(basenameOf(p)) ?? null);
+  }
+
+  function updateRelationCanvas({ path, old, catalog, picks, edges, title }) {
+    const resolve = notePathResolver(catalog);
     const result = mergeRelationCanvas(old, { resolve, picks, relations: [...edges.values()], cardSize: FILE_CARD, budget: MAX_CANVAS_NODES });
     vault.writeFile(path, `${JSON.stringify(result.canvas, null, 2)}
 `);
@@ -451,7 +455,8 @@ export function createCanvasMaker({ vault, ai }) {
       for (const r of existingRelations(notes)) edges.set(pairKey(r.from, r.to), { ...r });
       if (old) {
         // 既有關係也看舊圖上的筆記，新筆記才連得到它們
-        const onCanvas = (old.nodes || []).filter((n) => n.type === "file" && vault.readFile(n.file) !== null).map((n) => n.file);
+        const resolve = notePathResolver(catalog);
+        const onCanvas = (old.nodes || []).filter((n) => n.type === "file").map((n) => resolve(n.file)).filter(Boolean);
         const extra = onCanvas.filter((p) => !known.has(p)).map((p) => vault.readNote(p));
         for (const r of existingRelations([...notes, ...extra])) if (!edges.has(pairKey(r.from, r.to))) edges.set(pairKey(r.from, r.to), { ...r });
       }
