@@ -196,7 +196,7 @@ export function startBot() {
         "想從已經存進去的筆記裡查資料，用 /ask 加上你的問題，例如：",
         "/ask 北海道有什麼景點",
         "想看目前有哪些分類、點進去瀏覽文章，用 /browse。",
-        "整理：/cards 合併重複的概念卡、/tags 看與合併 tag。",
+        "整理：/cards 合併重複的概念卡、/tags 看與合併 tag、回覆已存的筆記訊息傳 /rebuild 用原網址重新整理那篇。",
         "畫圖：/canvas 問題 會畫成 Obsidian Canvas（說明圖、規劃圖、關聯圖、研究總覽），回覆已存的筆記訊息傳 /canvas 就針對那篇畫。",
         "管理：/status 看狀態、/sync 同步 git、/logs 看 log、/restart 重啟、/migrate 舊筆記重建。",
         NOTEBOOKLM_ENABLED
@@ -370,7 +370,7 @@ export function startBot() {
     commitAndPush,
     tools: { notebooklm: NOTEBOOKLM_ENABLED, ytdlp: YTDLP_ENABLED },
   });
-  registerVaultToolCommands(bot, { vault, ai, intakeLane, runQueued, inBackground, editStatus, commitAndPush });
+  registerVaultToolCommands(bot, { vault, ai, pipeline, intakeLane, runQueued, inBackground, editStatus, commitAndPush, formatSavedReply });
   registerCanvasCommands(bot, { canvasMaker, intakeLane, runQueued });
 
   bot.on("text", async (ctx) => {
@@ -416,6 +416,7 @@ export function startBot() {
     { command: "canvas", description: "畫成 Obsidian Canvas（說明/規劃/關聯/研究，或直接問）" },
     { command: "cards", description: "找出並合併重複的概念卡" },
     { command: "tags", description: "看 tag 使用量、合併重複的 tag" },
+    { command: "rebuild", description: "回覆已存的筆記訊息：用原網址重新整理那篇" },
     { command: "status", description: "目前狀態：佇列、筆記數、重建進度" },
     { command: "sync", description: "立刻把 vault 同步到 git" },
     { command: "logs", description: "最近的 log（/logs error 只看錯誤）" },

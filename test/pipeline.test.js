@@ -446,3 +446,25 @@ test("supplementResearch keeps the user's hand-written related links", async () 
   assert.match(body, /\[\[我手動加的連結\]\]/);
   assert.equal(body.split("## 相關筆記").length, 2, "only one related section");
 });
+
+test("refreshNote rebuilds a note in place from its source url and commits", async () => {
+  const url = "https://example.com/a";
+  const { vault, calls, pipeline } = setup({ fetched: { [url]: { url, ok: true, title: "A", text: "原文" } } });
+  const old = vault.writeNote({ folder: "技術/前端框架/Vue", title: "舊筆記", tags: ["Vue"], summary: "s", body: "舊內容", sources: [url], type: "article", sourceChannel: "t" }).relativePath;
+
+  const out = await pipeline.refreshNote(old);
+
+  assert.equal(out.result.relativePath, old, "stays at the same path");
+  assert.deepEqual(calls.fetch, [url]);
+  assert.notEqual(vault.readNote(old).body, "舊內容");
+  assert.equal(calls.git.length, 1);
+});
+
+test("refreshNote refuses research notes, notes without sources and missing notes", async () => {
+  const { vault, pipeline } = setup();
+  const research = vault.writeNote({ folder: "技術/x", title: "研究", tags: [], summary: "s", body: "b", sources: ["https://x.com"], type: "research", sourceChannel: "t" }).relativePath;
+  const noSource = vault.writeNote({ folder: "技術/x", title: "想法", tags: [], summary: "s", body: "b", type: "note", sourceChannel: "t" }).relativePath;
+  await assert.rejects(pipeline.refreshNote(research), /notebook/);
+  await assert.rejects(pipeline.refreshNote(noSource), /沒有原始網址/);
+  await assert.rejects(pipeline.refreshNote("不存在.md"), /找不到筆記/);
+});

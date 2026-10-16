@@ -239,7 +239,21 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
      * 重新抓原文；原文抓不到（或本來就沒有網址）時，原筆記內容就是唯一來源。
      * 保留最早的收錄日期與原本的收件管道；不各自 commit（批次結束時一次 commit）。
      */
-    async rebuildNote(oldNotes) {
+    /**
+     * /rebuild：用原始網址重新整理一篇既有筆記，原地覆寫（路徑不變，其他筆記的連結不會斷），完成後 commit。
+     * 研究筆記的來源是 NotebookLM，不適用（用 /notebook 補充研究）。
+     */
+    async refreshNote(notePath) {
+      if (vault.readFile(notePath) === null) throw new Error(`找不到筆記 ${notePath}（可能已搬家或刪除）`);
+      const note = vault.readNote(notePath);
+      const kind = note.frontmatter?.type;
+      if (kind === "research") throw new Error("研究筆記要用 /notebook 補充研究，不能用原網址重建");
+      if (kind === "MOC" || kind === "card") throw new Error("分類地圖和概念卡是自動產生的，不用重建");
+      if (!note.sources.length) throw new Error("這篇筆記沒有原始網址，沒東西可以重新讀取");
+      return this.rebuildNote([note], { targetPath: notePath, skipGit: false });
+    },
+
+    async rebuildNote(oldNotes, { targetPath, skipGit = true } = {}) {
       const urls = [];
       for (const url of oldNotes.flatMap((n) => n.sources)) {
         if (!urls.some((u) => normalizeUrl(u) === normalizeUrl(url))) urls.push(url);
@@ -259,7 +273,8 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         sourceChannel,
         type: noteTypeOf(fetched, urls),
         extra: dateAdded ? { date_added: dateAdded } : {},
-        skipGit: true,
+        targetPath,
+        skipGit,
       });
       return { ...saved, fetchErrors: fetchErrorsOf(fetched) };
     },

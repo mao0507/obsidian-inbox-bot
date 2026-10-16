@@ -1,6 +1,7 @@
 import { Markup } from "telegraf";
 import { findDuplicateCards, mergeCards } from "./cardMerge.js";
 import { tagUsage, mergeTags, findSimilarTags } from "./tagMerge.js";
+import { notePathOfReply } from "./botCanvas.js";
 
 // vault 整理類 Telegram 指令：/cards（合併重複概念卡）、/tags（看 tag 使用量、找相似 tag、合併 tag）。
 // 會改動 vault 的動作都排進一般收件那條佇列，避免跟正在寫入的筆記同時改檔案或 commit。
@@ -29,7 +30,25 @@ async function offerGroups(ctx, groups, pending, { prefix, describe }) {
  * @param {{ vault, ai, intakeLane, runQueued: Function, inBackground: Function, editStatus: Function,
  *           commitAndPush: (message: string) => Promise<object> }} deps
  */
-export function registerVaultToolCommands(bot, { vault, ai, intakeLane, runQueued, inBackground, editStatus, commitAndPush }) {
+export function registerVaultToolCommands(bot, deps) {
+  const { vault, ai, pipeline, intakeLane, runQueued, inBackground, editStatus, commitAndPush, formatSavedReply } = deps;
+
+  // /rebuild：回覆「已存進 Obsidian」的訊息（或直接給筆記路徑），用原網址重新整理那篇，原地覆寫
+  bot.command("rebuild", async (ctx) => {
+    const arg = ctx.message.text.replace(/^\/rebuild(@\w+)?\s*/, "").trim();
+    const notePath = notePathOfReply(ctx.message.reply_to_message) || (arg.endsWith(".md") ? arg : null);
+    if (!notePath) {
+      await ctx.reply("用法：回覆一則「已存進 Obsidian」的訊息傳 /rebuild，或 /rebuild 筆記路徑.md");
+      return;
+    }
+    await runQueued(ctx, intakeLane, {
+      startText: `🔁 用原網址重新整理「${notePath}」中（重新抓原文、重寫筆記，大約 1~3 分鐘）...`,
+      run: () => pipeline.refreshNote(notePath),
+      formatDone: (outcome) => formatSavedReply("✅ 已重新整理，筆記留在原路徑", outcome),
+      failPrefix: "❌ 重新整理失敗",
+    });
+  });
+
   bot.command("cards", async (ctx) => {
     const status = await ctx.reply("🔍 請 AI 找重複的概念卡中（大約 1 分鐘）...");
     inBackground(async () => {
