@@ -206,3 +206,24 @@ test("a malformed canonical link does not break parsing", () => {
   assert.equal(source.wrongPage, undefined);
   assert.match(source.text, /這是正文段落/);
 });
+
+test("review: images and links in the whole-page fallback keep absolute URLs", () => {
+  // 跟上面「Readability 只挑中一小塊」同一種頁面，確定走整頁 fallback
+  const days = Array.from({ length: 5 }, (_, i) =>
+    `<div><div><span>第 ${i + 1} 天</span></div><div><span>行程</span><span>登別地獄谷／洞爺湖畔散策／小樽運河自由散策</span></div>` +
+    `<div><span>餐食</span><span>早餐：飯店內 午餐：日式壽喜燒</span></div><div><span>住宿</span><span>登別石水亭(或)同級</span></div></div>`
+  ).join("");
+  const html = `<!doctype html><html><head><title>北海道五日</title></head><body>
+    <div><span>售價</span><span>NT$37,900 起</span><img src="/upload/day1.jpg" alt="第一天景點"></div>
+    <div>${days}</div>
+    <div><h2>注意事項</h2><p>${"團體機票不能延回也不能退票，護照效期需六個月以上。".repeat(6)}</p><p>${"導遊司機小費每人每日新台幣三百元另付，十六人才成團。".repeat(6)}</p></div>
+  </body></html>`;
+  const source = parseArticleHtml(html, { url: "https://a.com/group/X" });
+  assert.match(source.text, /NT\$37,900 起/, "fallback is in use");
+  assert.match(source.text, /!\[第一天景點\]\(https:\/\/a\.com\/upload\/day1\.jpg\)/);
+});
+
+test("review: words like 'iconic' or 'silicon' do not get content images dropped", () => {
+  const md = htmlToMarkdown(`<p><img src="https://cdn.site.com/2026/silicon-valley-map.png" alt="iconic view of Fuji"></p>`);
+  assert.match(md, /!\[iconic view of Fuji\]/);
+});

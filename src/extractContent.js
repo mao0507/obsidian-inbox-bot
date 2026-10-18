@@ -113,10 +113,14 @@ function wrongPageReason(url, finalUrl, document) {
   return undefined;
 }
 
-function readablePageMarkdown(document) {
+// 整頁（去掉雜訊）的副本。相對網址先轉成絕對網址：htmlToMarkdown 只保留 http(s) 的圖片與連結，
+// Readability 自己的輸出會做這件事，整頁副本要自己做。
+function readablePageOf(document) {
   const body = document.body.cloneNode(true);
   body.querySelectorAll(PAGE_NOISE).forEach((el) => el.remove());
-  return htmlToMarkdown(body.innerHTML);
+  body.querySelectorAll("img[src]").forEach((img) => img.setAttribute("src", img.src));
+  body.querySelectorAll("a[href]").forEach((a) => a.setAttribute("href", a.href));
+  return body;
 }
 
 /**
@@ -130,11 +134,13 @@ export function parseArticleHtml(html, { url, finalUrl = url }) {
   if (wrongPage) return { wrongPage };
   // Readability 會改動 document，主辦單位線索與整頁文字要先抓
   const providerHints = providerHintsOf(document);
-  const pageText = readablePageMarkdown(document);
+  const page = readablePageOf(document);
   const article = new Readability(document).parse();
   const extracted = article ? htmlToMarkdown(article.content) : "";
   if (!article || extracted.trim().length < MIN_READABLE_TEXT_LENGTH) return null;
-  const text = visibleLength(extracted) < visibleLength(pageText) * FULL_PAGE_RATIO ? pageText : extracted;
+  // 比純文字長度（不含圖片、連結網址），整頁 Markdown 真的要用才轉
+  const usePage = visibleLength(article.textContent || "") < visibleLength(page.textContent) * FULL_PAGE_RATIO;
+  const text = usePage ? htmlToMarkdown(page.innerHTML) : extracted;
   return {
     providerHints,
     title: article.title || "",
@@ -350,8 +356,9 @@ export function htmlToMarkdown(html) {
           // 只留內容圖片的原網址（不下載）；logo、icon、data URI 這類不是內容的圖跳過
           const src = child.getAttribute("src") || "";
           const alt = (child.getAttribute("alt") || "").trim();
+          // logo / icon 要是獨立的詞（檔名、class 片段、alt 本身），iconic、silicon 這種不算
           const hint = `${src} ${alt} ${child.className}`;
-          if (/^https?:/.test(src) && !/logo|icon/i.test(hint)) out += `\n![${alt}](${src})\n`;
+          if (/^https?:/.test(src) && !/(^|[^a-z])(logo|icon|favicon)s?([^a-z]|$)/i.test(hint)) out += `\n![${alt}](${src})\n`;
           break;
         }
         default:

@@ -609,3 +609,59 @@ test("same tour: a new departure is appended when other_sources already exists",
   await pipeline.processIncomingContent(`${base}/B2`, "telegram");
   assert.deepEqual(vault.readNote(notePath).sources, [base, `${base}/B1`, `${base}/B2`]);
 });
+
+test("review: recording a new departure is committed", async () => {
+  const { vault, calls, pipeline } = setup();
+  vault.writeNote({ ...draft, folder: "旅遊/日本/北海道", body: "內文", sources: ["https://www.dtsgroup.com.tw/group/A"], sourceChannel: "telegram" });
+  await pipeline.processIncomingContent("https://www.dtsgroup.com.tw/group/A/B1", "telegram");
+  assert.equal(calls.git.length, 1);
+});
+
+test("review: sibling departures (only the last segment differs) are the same tour", async () => {
+  const { vault, pipeline } = setup();
+  const notePath = vault.writeNote({ ...draft, folder: "旅遊/日本/北海道", body: "內文", sources: ["https://www.dtsgroup.com.tw/group/A/B1"], sourceChannel: "telegram" }).relativePath;
+  const out = await pipeline.processIncomingContent("https://www.dtsgroup.com.tw/group/A/B2", "telegram");
+  assert.equal(out.duplicatePath, notePath);
+});
+
+test("review: different tours on the listed domain are not duplicates", async () => {
+  const { vault, pipeline } = setup();
+  vault.writeNote({ ...draft, folder: "旅遊/日本/北海道", body: "內文", sources: ["https://www.dtsgroup.com.tw/group/A"], sourceChannel: "telegram" });
+  const out = await pipeline.processIncomingContent("https://www.dtsgroup.com.tw/group/B", "telegram");
+  assert.notEqual(out.duplicate, true);
+});
+
+test("review: unrelated URLs in the same message are not filed into the duplicate note", async () => {
+  const { vault, pipeline } = setup();
+  const notePath = vault.writeNote({ ...draft, folder: "旅遊/日本/北海道", body: "內文", sources: ["https://www.dtsgroup.com.tw/group/A"], sourceChannel: "telegram" }).relativePath;
+  const out = await pipeline.processIncomingContent("https://www.dtsgroup.com.tw/group/A/B1 https://blog.com/unrelated", "telegram");
+  assert.deepEqual(out.recordedUrls, ["https://www.dtsgroup.com.tw/group/A/B1"]);
+  assert.ok(!vault.readNote(notePath).sources.includes("https://blog.com/unrelated"));
+});
+
+test("review: nothing is claimed as recorded when the note's frontmatter could not be updated", async () => {
+  const { vault, pipeline } = setup();
+  const notePath = "旅遊/日本/北海道/手寫.md";
+  vault.writeFile(notePath, "---\ntitle: 手寫\nsource:\n  - https://www.dtsgroup.com.tw/group/A\n---\n\n內文\n");
+  const out = await pipeline.processIncomingContent("https://www.dtsgroup.com.tw/group/A/B1", "telegram");
+  assert.equal(out.duplicatePath, notePath);
+  assert.deepEqual(out.recordedUrls, []);
+});
+
+test("review: punctuation left after removing the URL is not a note", async () => {
+  const { vault, pipeline } = setup();
+  const out = await pipeline.processIncomingContent("(https://example.com/post)。", "telegram");
+  assert.doesNotMatch(vault.readNote(out.result.relativePath).body, /我的備註/);
+});
+
+test("review: rebuild without the original does not feed the note block to the AI", async () => {
+  const url = "https://example.com/gone";
+  const { vault, calls, pipeline } = setup();
+  const old = vault.writeNote({
+    folder: "技術/前端框架/Vue", title: "舊筆記", tags: ["Vue"], summary: "s", sources: [url], type: "article", sourceChannel: "t",
+    body: "> [!note] 我的備註\n> 想帶爸媽去\n\n> [!summary] TL;DR\n> 舊內容",
+  }).relativePath;
+  await pipeline.refreshNote(old);
+  assert.doesNotMatch(calls.askJson[0].user, /想帶爸媽去/);
+  assert.match(calls.askJson[0].user, /舊內容/);
+});

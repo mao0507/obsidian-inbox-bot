@@ -1,6 +1,6 @@
 import path from "node:path";
 import { findUrls } from "./extractContent.js";
-import { findDuplicateNote, normalizeUrl } from "./duplicateCheck.js";
+import { findDuplicateNote, normalizeUrl, sameItem } from "./duplicateCheck.js";
 import { syncRelatedNotes, relatedSectionOf } from "./relatedNotes.js";
 import { syncMocForFolder } from "./mocSync.js";
 import { createNoteDrafter } from "./noteDrafter.js";
@@ -31,7 +31,8 @@ const noteTypeOf = (fetched, urls) => (fetched.some((f) => f.kind === "video") ?
 function myNoteBlock(text, urls) {
   if (!urls.length) return "";
   const words = urls.reduce((rest, url) => rest.split(url).join(""), text).trim();
-  return words ? `> [!note] 我的備註\n${words.split("\n").map((line) => `> ${line}`).join("\n")}` : "";
+  // 只剩網址旁的括號、句號之類（沒有任何字或數字）不算備註
+  return /[\p{L}\p{N}]/u.test(words) ? `> [!note] 我的備註\n${words.split("\n").map((line) => `> ${line}`).join("\n")}` : "";
 }
 // 重建時從舊筆記原樣搬回我的備註（callout 到第一個非 > 開頭的行為止）
 const myNoteBlockOf = (body = "") => (body.match(/^> \[!note\] 我的備註\n(?:>.*(?:\n|$))*/m) || [""])[0].trim();
@@ -244,9 +245,22 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       const duplicatePath = urls.length ? findDuplicateNote(vault, urls) : null;
       if (duplicatePath) {
         // 同一個商品的另一個網址（例如同一團的其他出發日期）：記進舊筆記，內容不重寫
+        // 只記跟這篇是同一個商品的網址，同一則訊息裡無關的網址不能被塞進來
         const known = vault.readNote(duplicatePath).sources.map(normalizeUrl);
-        const recordedUrls = urls.filter((u) => !known.includes(normalizeUrl(u)));
-        if (recordedUrls.length) vault.updateNote(duplicatePath, (content) => appendOtherSources(content, recordedUrls));
+        const newUrls = urls.filter((u) => {
+          const n = normalizeUrl(u);
+          return !known.includes(n) && known.some((k) => sameItem(k, n));
+        });
+        // frontmatter 格式特殊（手寫的清單式 source）改不動時，不要回報說記好了
+        const written = newUrls.length > 0 && vault.updateNote(duplicatePath, (content) => appendOtherSources(content, newUrls));
+        const recordedUrls = written ? newUrls : [];
+        if (written) {
+          try {
+            await git.commitAndPush(`記錄同一篇的新網址：${duplicatePath}`);
+          } catch (err) {
+            console.warn(`[git] 同步新網址失敗：${err.message}`);
+          }
+        }
         return { duplicate: true, duplicatePath, urls, recordedUrls };
       }
 
@@ -297,7 +311,8 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       const rawText = fetched.some((f) => f.ok)
         ? `重新整理既有筆記（原標題：${titles}）。請以擷取到的原文為準，重新整理成精讀筆記。`
         : `重新整理既有筆記（原標題：${titles}）。原文已無法取得，以下原筆記內容是唯一來源，完整保留其中所有資訊：\n\n` +
-          oldNotes.map((n) => n.body).join("\n\n---\n\n");
+          // 我的備註另外原樣搬回，不交給 AI，免得它在內文再抄一份
+          oldNotes.map((n) => n.body.replace(myNoteBlockOf(n.body), "").trim()).join("\n\n---\n\n");
 
       const { sourceChannel, dateAdded } = inheritedFrom(oldNotes);
       const saved = await draftAndSave({

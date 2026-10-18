@@ -51,18 +51,25 @@ export function findDuplicateNote(vault, urls) {
   return hit ? hit.path : null;
 }
 
-// 這些網站的網址最後一段是「同一個商品的不同場次」（例如旅行團的出發日期代碼），
-// 只差最後一段就算同一篇。只對列出的網域這樣判斷：部落格的 /blog/vue 跟 /blog/vue/xxx 是不同文章。
-const SAME_ITEM_DOMAINS = ["dtsgroup.com.tw"];
+// 這些網站的網址前 N 段是商品（例如 /group/<團號>），後面接的是同一個商品的不同場次（出發日期代碼），
+// 前 N 段相同就算同一篇：/group/A、/group/A/B1、/group/A/B2 都是同一團。
+// 只對列出的網域這樣判斷：部落格的 /blog/vue 跟 /blog/vue/xxx 是不同文章。
+const SAME_ITEM_DOMAINS = { "dtsgroup.com.tw": 2 };
 
-function sameItem(a, b) {
-  if (a === b) return true;
-  const [short, long] = a.length < b.length ? [a, b] : [b, a];
-  if (!long.startsWith(`${short}/`) || long.slice(short.length + 1).includes("/")) return false;
+function itemKey(normalized) {
   try {
-    const host = new URL(short).hostname;
-    return SAME_ITEM_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+    const u = new URL(normalized);
+    const depth = Object.entries(SAME_ITEM_DOMAINS).find(([d]) => u.hostname === d || u.hostname.endsWith(`.${d}`))?.[1];
+    const segments = u.pathname.split("/").filter(Boolean);
+    return depth && segments.length >= depth ? `${u.host}/${segments.slice(0, depth).join("/")}` : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** 兩個網址（正規化後）是不是同一篇：完全相同，或是指定網域的同一個商品。 */
+export function sameItem(a, b) {
+  if (a === b) return true;
+  const key = itemKey(a);
+  return key !== null && key === itemKey(b);
 }
