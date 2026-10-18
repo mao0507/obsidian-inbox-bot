@@ -71,9 +71,13 @@ const BROWSER_USER_AGENT =
 const CHALLENGE_TITLE = /請稍候|Just a moment|Attention Required|Access denied|Verify you are human/i;
 const CHALLENGE_WAIT_MS = 20_000;
 
-// Readability 抽正文並轉成 Markdown；抽不到夠長的內容回傳 null。
-function parseArticleHtml(html, url) {
-  const article = new Readability(new JSDOM(html, { url, virtualConsole: quietConsole }).window.document).parse();
+/**
+ * Readability 抽正文並轉成 Markdown；抽不到夠長的內容回傳 null。
+ * 一般抓取與瀏覽器抓取共用這支，測試也直接餵 HTML 字串。
+ * finalUrl：重新導向後實際抵達的網址（沒有導向就跟 url 一樣）。
+ */
+export function parseArticleHtml(html, { url, finalUrl = url }) {
+  const article = new Readability(new JSDOM(html, { url: finalUrl, virtualConsole: quietConsole }).window.document).parse();
   const text = article ? htmlToMarkdown(article.content) : "";
   if (!article || text.trim().length < MIN_READABLE_TEXT_LENGTH) return null;
   return {
@@ -103,7 +107,7 @@ async function fetchViaFetch(url) {
       return { url, ok: false, error: `不支援的內容類型: ${contentType}` };
     }
     const html = await res.text();
-    const article = parseArticleHtml(html, url);
+    const article = parseArticleHtml(html, { url, finalUrl: res.url || url });
     if (article) return { url, ok: true, ...article };
 
     // Readability 抓不到夠長的正文：常見於 Threads、X（Twitter）、Instagram 這類短文社群貼文，
@@ -182,13 +186,14 @@ async function fetchViaBrowser(url) {
     const innerText = await waitForStableText(page, { maxWaitMs: 25000, pollMs: 500, minLength: 40 });
     const title = (await page.title()) || "";
     const html = await page.content();
+    const finalUrl = page.url();
     await browser.close();
 
     if (CHALLENGE_TITLE.test(title)) {
       return { url, ok: false, error: "被網站的防爬蟲驗證擋下（需要真人驗證）" };
     }
 
-    const article = parseArticleHtml(html, url);
+    const article = parseArticleHtml(html, { url, finalUrl });
     if (article) return { url, ok: true, ...article, title: article.title || title };
 
     const cleaned = innerText.replace(/\n{3,}/g, "\n\n").trim();

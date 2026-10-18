@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { htmlToMarkdown, findUrls, createWebFetcher } from "../src/extractContent.js";
+import { htmlToMarkdown, findUrls, createWebFetcher, parseArticleHtml } from "../src/extractContent.js";
 
 test("keeps article structure: headings, lists, code blocks, inline code, links", () => {
   const md = htmlToMarkdown(`
@@ -87,4 +87,17 @@ test("notion pages go straight to the browser", async () => {
   const { fetcher, calls } = fetcherWith({ browserResult: { ok: true, text: long } });
   await fetcher.fetch("https://foo.notion.site/page");
   assert.deepEqual(calls, ["browser"]);
+});
+
+// 一篇夠長、Readability 認得出來的文章頁，給 parseArticleHtml 的測試共用。
+const articlePage = ({ head = "", header = "", main = "", footer = "" } = {}) => `<!doctype html><html><head><title>文章標題</title>${head}</head><body>
+  ${header}
+  <article><h1>文章標題</h1>${main || `<p>${"這是正文段落，內容夠長讓 Readability 認得出來。".repeat(20)}</p>`}</article>
+  ${footer}
+</body></html>`;
+
+test("parseArticleHtml turns a plain HTML string into a Source", () => {
+  const source = parseArticleHtml(articlePage(), { url: "https://a.com/post/1", finalUrl: "https://a.com/post/1" });
+  assert.equal(source.title, "文章標題");
+  assert.match(source.text, /這是正文段落/);
 });
