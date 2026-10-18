@@ -13,7 +13,7 @@ function childEnv() {
 // 避免重複實作 spawn / timeout / 錯誤處理邏輯。
 export function runCli(command, args, input, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: childEnv() });
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: childEnv(), windowsHide: true });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {

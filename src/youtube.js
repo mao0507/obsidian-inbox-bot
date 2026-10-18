@@ -37,7 +37,7 @@ export function youtubeVideoId(url) {
 export function createYtDlpRunner(command) {
   return function run(args, { timeoutMs = META_TIMEOUT_MS } = {}) {
     return new Promise((resolve, reject) => {
-      const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let stdout = "";
       let stderr = "";
       const timer = setTimeout(() => {

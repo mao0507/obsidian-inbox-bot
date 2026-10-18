@@ -44,7 +44,7 @@ export class NotebookAuthExpiredError extends Error {
 export function createNotebookLmRunner(command) {
   return function run(args, { timeoutMs = SHORT_TIMEOUT_MS } = {}) {
     return new Promise((resolve, reject) => {
-      const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
       let stdout = "";
       let stderr = "";
       const timer = setTimeout(() => {

@@ -50,6 +50,7 @@ export function createGitSync({ repoPath, remoteUrl, branch = "main", label, def
       // 不要卡住等使用者輸入（這支程式是背景執行，沒有人可以互動輸入）。
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       timeout: 30_000,
+      windowsHide: true,
       maxBuffer: 10 * 1024 * 1024,
     });
   }

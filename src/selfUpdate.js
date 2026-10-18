@@ -16,7 +16,7 @@ export function runCommand(command, args, { cwd = PROJECT_ROOT } = {}) {
       if (err) reject(new Error(`${command} ${args.join(" ")} 失敗：${(stderr || stdout || err.message).trim().slice(-800)}`));
       else resolve(stdout);
     };
-    const options = { cwd, timeout: COMMAND_TIMEOUT_MS };
+    const options = { cwd, timeout: COMMAND_TIMEOUT_MS, windowsHide: true };
     // Windows 上 pnpm 是 .cmd，只能透過 shell 執行；參數都是寫死的，沒有使用者輸入
     if (process.platform === "win32" && command === "pnpm") exec([command, ...args].join(" "), options, done);
     else execFile(command, args, options, done);
