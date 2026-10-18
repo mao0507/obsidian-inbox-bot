@@ -107,13 +107,13 @@ test("url already in vault: reports duplicate without calling AI", async () => {
 
 test("category outside the taxonomy falls back to inbox", async () => {
   const { pipeline } = setup({ aiDraft: { ...draft, category: "知識庫" } });
-  const out = await pipeline.processIncomingContent("隨便", "telegram");
+  const out = await pipeline.processIncomingContent("隨便 測試內容", "telegram");
   assert.equal(out.draft.folder, "收件匣/待整理");
 });
 
 test("git failure does not fail the note", async () => {
   const { vault, pipeline } = setup({ gitResult: { attempted: true, pushed: false, error: "boom" } });
-  const out = await pipeline.processIncomingContent("記一下", "telegram");
+  const out = await pipeline.processIncomingContent("記一下 測試內容", "telegram");
   assert.equal(out.gitResult.error, "boom");
   assert.ok(vault.readNote(out.result.relativePath));
 });
@@ -139,8 +139,8 @@ test("notebook research: report drives the draft and note is saved", async () =>
 
 test("related links and MOC run after write", async () => {
   const { vault, pipeline } = setup();
-  await pipeline.processIncomingContent("a", "telegram");
-  const out = await pipeline.processIncomingContent("b", "telegram");
+  await pipeline.processIncomingContent("a 測試內容", "telegram");
+  const out = await pipeline.processIncomingContent("b 測試內容", "telegram");
 
   assert.equal(out.relatedResult.linkedCount, 1);
   assert.deepEqual(out.mocResult, { updated: true, mocPath: "技術/技術地圖.md" });
@@ -155,7 +155,7 @@ test("note type: plain text is note, fetched url is article, research is researc
   });
   const type = (out) => vault.readNote(out.result.relativePath).frontmatter.type;
 
-  assert.equal(type(await pipeline.processIncomingContent("想法", "telegram")), "note");
+  assert.equal(type(await pipeline.processIncomingContent("想法 測試內容", "telegram")), "note");
   assert.equal(type(await pipeline.processIncomingContent(url, "telegram")), "article");
   assert.equal(type(await pipeline.processNotebookResearch("主題", "telegram-notebook")), "research");
 });
@@ -175,7 +175,7 @@ test("source metadata from the fetcher wins over what the AI guessed", async () 
 
 test("note body follows the template and frontmatter has reading_time", async () => {
   const { vault, pipeline } = setup();
-  const note = vault.readNote((await pipeline.processIncomingContent("記一下", "telegram")).result.relativePath);
+  const note = vault.readNote((await pipeline.processIncomingContent("記一下 測試內容", "telegram")).result.relativePath);
   assert.match(note.body, /TL;DR[\s\S]*## 重點[\s\S]*## 詳細內容[\s\S]*## 回顧問題/);
   assert.equal(note.frontmatter.kind, "片段");
   assert.match(note.frontmatter.reading_time, /分鐘$/);
@@ -231,11 +231,11 @@ test("tag spelling variants land in the same folder and frontmatter tags are can
   const { vault, pipeline } = setup({
     aiDraft: { ...draft, category: "AI", subcategory: "編程助手", primary_tag: "ClaudeCode", tags: ["MCP"] },
   });
-  await pipeline.processIncomingContent("a", "telegram");
+  await pipeline.processIncomingContent("a 測試內容", "telegram");
 
   const variant = { ...draft, category: "AI", subcategory: "編程助手", primary_tag: "Claude Code", tags: ["mcp", "claude-code"] };
   const { pipeline: second } = setupWith(vault, { aiDraft: variant });
-  const out = await second.processIncomingContent("b", "telegram");
+  const out = await second.processIncomingContent("b 測試內容", "telegram");
 
   assert.equal(out.draft.folder, "AI/編程助手/ClaudeCode");
   assert.deepEqual(vault.readNote(out.result.relativePath).tags, ["ClaudeCode", "MCP"]);
@@ -244,7 +244,7 @@ test("tag spelling variants land in the same folder and frontmatter tags are can
 
 test("brand-new tags are created and reported", async () => {
   const { pipeline } = setup({ aiDraft: { ...draft, primary_tag: "Podman", tags: ["Rootless"] } });
-  const out = await pipeline.processIncomingContent("a", "telegram");
+  const out = await pipeline.processIncomingContent("a 測試內容", "telegram");
   assert.equal(out.draft.folder, "技術/DevOps與部署/Podman");
   assert.deepEqual(out.createdTags, ["Podman", "Rootless"]);
 });
@@ -425,7 +425,7 @@ test("rebuildResearchNote keeps every old notebook id even when they were all de
 
 test("a category outside the taxonomy does not add its primary tag to the vocabulary", async () => {
   const { vault, pipeline } = setup({ aiDraft: { ...draft, category: "知識庫", primary_tag: "完全新的Tag" } });
-  const out = await pipeline.processIncomingContent("x", "telegram");
+  const out = await pipeline.processIncomingContent("x 測試內容", "telegram");
   assert.equal(out.draft.folder, "收件匣/待整理");
   assert.ok(!(vault.readFile("_系統/tags.json") || "").includes("完全新的Tag"));
   assert.ok(!out.createdTags.includes("完全新的Tag"));
@@ -467,4 +467,13 @@ test("refreshNote refuses research notes, notes without sources and missing note
   await assert.rejects(pipeline.refreshNote(research), /notebook/);
   await assert.rejects(pipeline.refreshNote(noSource), /沒有原始網址/);
   await assert.rejects(pipeline.refreshNote("不存在.md"), /找不到筆記/);
+});
+
+test("very short text without a url is rejected before calling the AI", async () => {
+  const { calls, pipeline } = setup();
+  await assert.rejects(pipeline.processIncomingContent("f", "telegram"), /內容太短/);
+  await assert.rejects(pipeline.processIncomingContent("買牛", "telegram"), /內容太短/);
+  assert.equal(calls.askJson.length, 0);
+  await pipeline.processIncomingContent("買牛奶記得", "telegram"); // 夠長的短想法照常存
+  assert.equal(calls.askJson.length, 1);
 });

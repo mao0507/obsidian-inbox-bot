@@ -21,6 +21,7 @@ import {
 } from "./researchPlan.js";
 
 const MAX_URLS_PER_MESSAGE = 3;
+const MIN_TEXT_CHARS = 4; // 沒有網址時，少於這個字數就不存（例如手滑只傳了「f」）
 
 // 筆記型態由流程決定，不交給 AI：有影片 -> video；有網址 -> article（抓不到也算）；純文字 -> note
 const noteTypeOf = (fetched, urls) => (fetched.some((f) => f.kind === "video") ? "video" : urls.length ? "article" : "note");
@@ -225,6 +226,10 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       if (!text) throw new Error("內容是空的");
 
       const urls = findUrls(text);
+      // 沒網址又只有幾個字（手滑、測試訊息）不值得寫成筆記，也不浪費 AI 呼叫
+      if (!urls.length && [...text].length < MIN_TEXT_CHARS) {
+        throw new Error(`內容太短（少於 ${MIN_TEXT_CHARS} 個字又沒有網址），沒有存成筆記。想記下來請多寫一點`);
+      }
       const duplicatePath = urls.length ? findDuplicateNote(vault, urls) : null;
       if (duplicatePath) return { duplicate: true, duplicatePath, urls };
 

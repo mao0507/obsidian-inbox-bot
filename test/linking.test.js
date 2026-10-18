@@ -31,7 +31,7 @@ function vaultWithPipeline() {
       content: "c",
       review_questions: [{ question: "q", answer: "a" }],
     };
-    return pipeline.processIncomingContent(title, "test");
+    return pipeline.processIncomingContent(`${title} 測試內容`, "test");
   };
   return { vault, save };
 }
