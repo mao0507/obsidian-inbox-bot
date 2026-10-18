@@ -508,3 +508,22 @@ test("wrong page: nothing is saved, AI is not called, and the user is told to pa
   assert.equal(calls.askJson.length, 0);
   assert.equal(vault.listNotes().length, 0);
 });
+
+test("price and dates from the AI are written to frontmatter verbatim", async () => {
+  const { vault, calls, pipeline } = setup({
+    aiDraft: { ...draft, price: "NT$37,900 起", dates: "2026-11-08 出發、11/27 出發" },
+  });
+  const out = await pipeline.processIncomingContent("記一下 北海道團", "telegram");
+  const fm = vault.readNote(out.result.relativePath).frontmatter;
+  assert.equal(fm.price, "NT$37,900 起");
+  assert.equal(fm.dates, "2026-11-08 出發、11/27 出發");
+  assert.match(calls.askJson[0].system, /價格、日期.*留空/);
+});
+
+test("missing price and dates leave no empty keys in frontmatter", async () => {
+  const { vault, pipeline } = setup();
+  const out = await pipeline.processIncomingContent("記一下 docker healthcheck", "telegram");
+  const fm = vault.readNote(out.result.relativePath).frontmatter;
+  assert.equal("price" in fm, false);
+  assert.equal("dates" in fm, false);
+});

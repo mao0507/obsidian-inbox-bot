@@ -48,6 +48,11 @@ export const FILE_NOTE_TOOL = {
         description:
           "主辦／提供者：這篇內容是誰的（旅行社、公司、品牌、課程平台）。只依頁面上看得到的名稱填，看不出來就留空字串，不要從網域猜",
       },
+      price: { type: "string", description: "價格／費用，照原文寫法記錄（例如「NT$37,900 起」）；看不出來就留空字串" },
+      dates: {
+        type: "string",
+        description: "重要日期（出發日期、活動日期、有效期限等），照原文寫法記錄，多個用「、」分隔；看不出來就留空字串",
+      },
       published: { type: "string", description: "原文發布日期 YYYY-MM-DD（內文看得出來才填，否則留空字串，不要猜）" },
       tldr: { type: "string", description: "TL;DR：最多 3 行，讀完就知道這篇在講什麼、結論是什麼" },
       key_points: stringArray("重點條列：3~8 點，每點一句完整的話（不是關鍵字），涵蓋最重要的結論、數據與做法"),

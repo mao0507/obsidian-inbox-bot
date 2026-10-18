@@ -98,6 +98,8 @@ function serializeFrontmatter(note) {
   optional("original_title");
   optional("author");
   optional("provider");
+  optional("price");
+  optional("dates");
   optional("published");
   optional("channel");
   optional("duration");
