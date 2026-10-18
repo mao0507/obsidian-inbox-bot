@@ -152,3 +152,24 @@ test("a normal article keeps Readability's extract and leaves the sidebar out", 
   assert.match(source.text, /這是正文段落/);
   assert.doesNotMatch(source.text, /別篇文章標題/);
 });
+
+test("content images become Markdown images with their alt text", () => {
+  const md = htmlToMarkdown(`<p>架構如下：</p><figure><img src="https://a.com/img/arch.png" alt="系統架構圖"></figure><p>說明 <img src="https://a.com/img/inline.jpg" alt="流程"> 結束</p>`);
+  assert.match(md, /!\[系統架構圖\]\(https:\/\/a\.com\/img\/arch\.png\)/);
+  assert.match(md, /!\[流程\]\(https:\/\/a\.com\/img\/inline\.jpg\)/);
+});
+
+test("logos, icons, data URIs and src-less images are dropped", () => {
+  const md = htmlToMarkdown(`<p>文字
+    <img src="https://a.com/logo.png" alt="品牌">
+    <img src="https://a.com/x.png" class="site-icon" alt="">
+    <img src="https://a.com/y.png" alt="icon">
+    <img src="data:image/png;base64,AAAA" alt="像素">
+    <img alt="沒有網址"></p>`);
+  assert.doesNotMatch(md, /!\[/);
+});
+
+test("an image sitting next to paragraphs is kept", () => {
+  const md = htmlToMarkdown(`<div><p>上一段</p><img src="https://a.com/shot.png" alt="截圖"><p>下一段</p></div>`);
+  assert.match(md, /!\[截圖\]\(https:\/\/a\.com\/shot\.png\)/);
+});

@@ -319,6 +319,14 @@ export function htmlToMarkdown(html) {
         case "BR":
           out += "\n";
           break;
+        case "IMG": {
+          // 只留內容圖片的原網址（不下載）；logo、icon、data URI 這類不是內容的圖跳過
+          const src = child.getAttribute("src") || "";
+          const alt = (child.getAttribute("alt") || "").trim();
+          const hint = `${src} ${alt} ${child.className}`;
+          if (/^https?:/.test(src) && !/logo|icon/i.test(hint)) out += `\n![${alt}](${src})\n`;
+          break;
+        }
         default:
           out += BLOCK_TAGS.has(child.tagName) || /^H[1-6]$/.test(child.tagName) ? `\n${text}\n` : text;
       }
@@ -343,6 +351,9 @@ export function htmlToMarkdown(html) {
         const items = [...child.children].filter((li) => li.tagName === "LI");
         const lines = items.map((li) => inline(li).trim()).filter(Boolean); // 只有錨點連結的目錄項目會是空的
         if (lines.length) out.push(lines.map((text, i) => `${tag === "OL" ? `${i + 1}.` : "-"} ${text}`).join("\n"));
+      } else if (tag === "IMG") {
+        const md = inline({ childNodes: [child] }).trim(); // 跟行內圖片走同一套過濾規則
+        if (md) out.push(md);
       } else if (tag === "BLOCKQUOTE") {
         out.push(block(child, []).join("\n\n").split("\n").map((line) => `> ${line}`).join("\n"));
       } else if (child.querySelector(BLOCK_SELECTOR)) {
