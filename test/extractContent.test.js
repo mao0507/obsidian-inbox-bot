@@ -101,3 +101,21 @@ test("parseArticleHtml turns a plain HTML string into a Source", () => {
   assert.equal(source.title, "文章標題");
   assert.match(source.text, /這是正文段落/);
 });
+
+test("provider hints come from the header logo alt, og:site_name and copyright line", () => {
+  const source = parseArticleHtml(
+    articlePage({
+      head: `<meta property="og:site_name" content="大榮旅遊官網">`,
+      header: `<header><a href="/"><img alt="大榮旅遊" src="/logo.png"></a></header>`,
+      footer: `<footer><p>Copyright © 2026 大榮旅行社股份有限公司 All rights reserved.</p></footer>`,
+    }),
+    { url: "https://www.dtsgroup.com.tw/group/X" }
+  );
+  assert.ok(source.providerHints.includes("大榮旅遊"));
+  assert.ok(source.providerHints.includes("大榮旅遊官網"));
+  assert.ok(source.providerHints.some((h) => h.includes("大榮旅行社股份有限公司")));
+});
+
+test("no provider clues gives an empty hint list", () => {
+  assert.deepEqual(parseArticleHtml(articlePage(), { url: "https://a.com/p" }).providerHints, []);
+});

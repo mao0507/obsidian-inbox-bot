@@ -97,6 +97,7 @@ function serializeFrontmatter(note) {
   }
   optional("original_title");
   optional("author");
+  optional("provider");
   optional("published");
   optional("channel");
   optional("duration");

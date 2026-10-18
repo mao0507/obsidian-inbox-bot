@@ -21,6 +21,7 @@ ${RULES}
 - 回顧問題要問「理解」而不是「記憶」（例如「為什麼要這樣做？」「什麼情況下不適用？」），答案要具體。
 - concepts 只挑「換一篇文章也會再遇到」的通用概念，explanation 要能脫離這篇文章單獨看懂。
 - 原文關鍵摘錄要逐字引用原文，不要改寫；作者、發布日期看不出來就留空，不要猜。
+- 主辦單位（provider）只依頁面上看得到的名稱填（例如擷取內容附的「主辦單位線索」、內文提到的公司名），看不出來就留空，不要從網域或常識推測。
 - 如果你判斷原文有遺漏的重要背景（例如提到某個套件/工具沒解釋），用你的知識補充，並以「補充：」開頭標示。
 - 使用者自己寫的想法、短筆記沒有原文可以整理時，忠實整理並適度延伸，不要灌水。
 - 資料不足以判斷分類時，一律回退到 收件匣/待整理，不要硬猜。
@@ -37,7 +38,8 @@ function describeSource(f, i) {
   if (f.kind === "video") {
     return `【影片 ${i + 1}：${f.url}】\n標題：${f.title}\n頻道：${f.channel || "未知"}\n長度：${f.duration || "未知"}\n${VIDEO_INSTRUCTIONS}\n\n${f.text}`;
   }
-  return `【來源 ${i + 1}：${f.url}】\n標題：${f.title}\n作者：${f.byline || "未知"}\n摘要：${f.excerpt || "無"}\n內文：\n${f.text}`;
+  const providerLine = f.providerHints?.length ? `主辦單位線索：${f.providerHints.join("、")}\n` : "";
+  return `【來源 ${i + 1}：${f.url}】\n標題：${f.title}\n作者：${f.byline || "未知"}\n${providerLine}摘要：${f.excerpt || "無"}\n內文：\n${f.text}`;
 }
 
 export function buildUserPrompt({ rawText, fetched = [] }) {

@@ -71,16 +71,33 @@ const BROWSER_USER_AGENT =
 const CHALLENGE_TITLE = /請稍候|Just a moment|Attention Required|Access denied|Verify you are human/i;
 const CHALLENGE_WAIT_MS = 20_000;
 
+// 主辦單位（旅行社、公司、品牌）常常只出現在頁首 logo 的 alt、og:site_name 或頁尾版權宣告，
+// Readability 抽正文時這些都會被丟掉，AI 看不到就會從網域亂猜，所以另外抓出來當線索交給 AI。
+const LOGO_IMG = 'header img[alt], nav img[alt], a[href="/"] img[alt], img[alt][src*="logo" i], img[alt][class*="logo" i]';
+const COPYRIGHT_RE = /(?:©|Copyright).{0,100}/i; // 頁尾文字已先壓成一行
+
+function providerHintsOf(document) {
+  const hints = [
+    document.querySelector('meta[property="og:site_name"]')?.getAttribute("content"),
+    ...[...document.querySelectorAll(LOGO_IMG)].map((img) => img.getAttribute("alt")),
+    (document.querySelector("footer")?.textContent.replace(/\s+/g, " ").match(COPYRIGHT_RE) || [])[0],
+  ];
+  return [...new Set(hints.map((h) => (h || "").trim()).filter(Boolean))];
+}
+
 /**
  * Readability 抽正文並轉成 Markdown；抽不到夠長的內容回傳 null。
  * 一般抓取與瀏覽器抓取共用這支，測試也直接餵 HTML 字串。
  * finalUrl：重新導向後實際抵達的網址（沒有導向就跟 url 一樣）。
  */
 export function parseArticleHtml(html, { url, finalUrl = url }) {
-  const article = new Readability(new JSDOM(html, { url: finalUrl, virtualConsole: quietConsole }).window.document).parse();
+  const { document } = new JSDOM(html, { url: finalUrl, virtualConsole: quietConsole }).window;
+  const providerHints = providerHintsOf(document); // Readability 會改動 document，要先抓
+  const article = new Readability(document).parse();
   const text = article ? htmlToMarkdown(article.content) : "";
   if (!article || text.trim().length < MIN_READABLE_TEXT_LENGTH) return null;
   return {
+    providerHints,
     title: article.title || "",
     byline: article.byline || "",
     excerpt: article.excerpt || "",

@@ -477,3 +477,23 @@ test("very short text without a url is rejected before calling the AI", async ()
   await pipeline.processIncomingContent("買牛奶記得", "telegram"); // 夠長的短想法照常存
   assert.equal(calls.askJson.length, 1);
 });
+
+test("provider: page clues reach the AI prompt and the AI's provider lands in frontmatter", async () => {
+  const url = "https://www.dtsgroup.com.tw/group/X";
+  const { vault, calls, pipeline } = setup({
+    aiDraft: { ...draft, provider: "大榮旅遊" },
+    fetched: { [url]: { url, ok: true, title: "北海道五日", text: "行程", byline: "", excerpt: "", providerHints: ["大榮旅遊"] } },
+  });
+
+  const out = await pipeline.processIncomingContent(url, "telegram");
+
+  assert.match(calls.askJson[0].user, /主辦單位線索：大榮旅遊/);
+  assert.match(calls.askJson[0].system, /主辦單位.*不要從網域/);
+  assert.equal(vault.readNote(out.result.relativePath).frontmatter.provider, "大榮旅遊");
+});
+
+test("provider: empty provider is not written to frontmatter", async () => {
+  const { vault, pipeline } = setup({ aiDraft: { ...draft, provider: "" } });
+  const out = await pipeline.processIncomingContent("記一下 docker healthcheck", "telegram");
+  assert.equal("provider" in vault.readNote(out.result.relativePath).frontmatter, false);
+});
