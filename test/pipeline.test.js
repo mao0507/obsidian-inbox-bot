@@ -527,3 +527,40 @@ test("missing price and dates leave no empty keys in frontmatter", async () => {
   assert.equal("price" in fm, false);
   assert.equal("dates" in fm, false);
 });
+
+test("my note: the words sent with a URL are kept verbatim above the TL;DR", async () => {
+  const url = "https://example.com/post";
+  const { vault, pipeline } = setup();
+  const out = await pipeline.processIncomingContent(`想帶爸媽去，11 月比較便宜？\n${url}`, "telegram");
+  const body = vault.readNote(out.result.relativePath).body;
+  assert.match(body, /> \[!note\] 我的備註\n> 想帶爸媽去，11 月比較便宜？/);
+  assert.doesNotMatch(body.slice(0, body.indexOf("TL;DR")).split("我的備註")[1] || "", /example\.com/);
+  assert.ok(body.indexOf("我的備註") < body.indexOf("TL;DR"));
+});
+
+test("my note: a bare URL gets no note block", async () => {
+  const { vault, pipeline } = setup();
+  const out = await pipeline.processIncomingContent("https://example.com/post", "telegram");
+  assert.doesNotMatch(vault.readNote(out.result.relativePath).body, /我的備註/);
+});
+
+test("my note: plain text without a URL is unchanged (no note block)", async () => {
+  const { vault, pipeline } = setup();
+  const out = await pipeline.processIncomingContent("記一下 docker healthcheck", "telegram");
+  assert.doesNotMatch(vault.readNote(out.result.relativePath).body, /我的備註/);
+});
+
+test("my note: /rebuild keeps the note block written when the note was first saved", async () => {
+  const url = "https://example.com/a";
+  const { vault, pipeline } = setup({ fetched: { [url]: { url, ok: true, title: "A", text: "原文" } } });
+  const old = vault.writeNote({
+    folder: "技術/前端框架/Vue", title: "舊筆記", tags: ["Vue"], summary: "s", sources: [url], type: "article", sourceChannel: "t",
+    body: "> [!note] 我的備註\n> 想帶爸媽去\n\n> [!summary] TL;DR\n> 舊內容",
+  }).relativePath;
+
+  await pipeline.refreshNote(old);
+
+  const body = vault.readNote(old).body;
+  assert.match(body, /> \[!note\] 我的備註\n> 想帶爸媽去/);
+  assert.ok(body.indexOf("我的備註") < body.indexOf("TL;DR"));
+});

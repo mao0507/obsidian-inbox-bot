@@ -25,7 +25,16 @@ const MIN_TEXT_CHARS = 4; // 沒有網址時，少於這個字數就不存（例
 
 // 筆記型態由流程決定，不交給 AI：有影片 -> video；有網址 -> article（抓不到也算）；純文字 -> note
 const noteTypeOf = (fetched, urls) => (fetched.some((f) => f.kind === "video") ? "video" : urls.length ? "article" : "note");
-const fetchErrorsOf = (fetched) => fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error }));
+// 使用者傳網址時附的話（為什麼存、自己的想法）一字不改放在筆記最上方，不經過 AI 改寫。
+// 純文字筆記整篇就是使用者的話，不另外加。
+function myNoteBlock(text, urls) {
+  if (!urls.length) return "";
+  const words = urls.reduce((rest, url) => rest.split(url).join(""), text).trim();
+  return words ? `> [!note] 我的備註\n${words.split("\n").map((line) => `> ${line}`).join("\n")}` : "";
+}
+// 重建時從舊筆記原樣搬回我的備註（callout 到第一個非 > 開頭的行為止）
+const myNoteBlockOf = (body = "") => (body.match(/^> \[!note\] 我的備註\n(?:>.*(?:\n|$))*/m) || [""])[0].trim();
+const fetchErrorsOf =(fetched) => fetched.filter((f) => !f.ok).map(({ url, error }) => ({ url, error }));
 
 // 舊筆記重建時沿用：原本的收件管道、最早的收錄日期
 function inheritedFrom(oldNotes) {
@@ -127,6 +136,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
     sourceChannel,
     type,
     extra = {},
+    preface = "",
     appendix = "",
     targetPath,
     skipGit = false,
@@ -159,7 +169,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       published: source.published || draft.published,
       channel: source.channel,
       duration: source.duration,
-      body: [...warnings.map((w) => `> [!warning] ${w}`), draft.body, renderCardSection(cardPlan), appendix]
+      body: [...warnings.map((w) => `> [!warning] ${w}`), preface, draft.body, renderCardSection(cardPlan), appendix]
         .filter(Boolean)
         .join("\n\n"),
       cards: cardPlan.map((card) => card.name),
@@ -239,7 +249,14 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       if (wrongPage) {
         throw new Error(`抓錯頁面：${wrongPage.url} ${wrongPage.error}。沒有存成筆記，請直接貼上文章內容再傳一次`);
       }
-      const saved = await draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel, type: noteTypeOf(fetched, urls) });
+      const saved = await draftAndSave({
+        rawText: text,
+        fetched,
+        sources: urls,
+        sourceChannel,
+        type: noteTypeOf(fetched, urls),
+        preface: myNoteBlock(text, urls),
+      });
       // 抓不到的網址照樣建立筆記（只靠網址與使用者留言整理），但要讓使用者知道原因
       return { ...saved, fetchErrors: fetchErrorsOf(fetched) };
     },
@@ -283,6 +300,7 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         sourceChannel,
         type: noteTypeOf(fetched, urls),
         extra: dateAdded ? { date_added: dateAdded } : {},
+        preface: oldNotes.map((n) => myNoteBlockOf(n.body)).filter(Boolean).join("\n\n"),
         targetPath,
         skipGit,
       });
