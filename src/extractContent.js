@@ -85,6 +85,19 @@ function providerHintsOf(document) {
   return [...new Set(hints.map((h) => (h || "").trim()).filter(Boolean))];
 }
 
+// 行程頁、商品頁的售價、航班、每日行程常是零碎的 <span>，Readability 只會挑中其中一段長文。
+// 正文字數不到整頁可讀文字的這個比例，就改用整頁（去掉導覽列、頁首、頁尾、側欄）。
+// ponytail: 實測大榮旅遊行程頁 Readability 只抓到 51%，一般部落格通常 80% 以上；誤判的代價只是多帶一點雜訊。
+const FULL_PAGE_RATIO = 0.6;
+const PAGE_NOISE = "nav, header, footer, aside, script, style, noscript, form";
+const visibleLength = (text) => text.replace(/\s+/g, "").length;
+
+function readablePageMarkdown(document) {
+  const body = document.body.cloneNode(true);
+  body.querySelectorAll(PAGE_NOISE).forEach((el) => el.remove());
+  return htmlToMarkdown(body.innerHTML);
+}
+
 /**
  * Readability 抽正文並轉成 Markdown；抽不到夠長的內容回傳 null。
  * 一般抓取與瀏覽器抓取共用這支，測試也直接餵 HTML 字串。
@@ -92,10 +105,13 @@ function providerHintsOf(document) {
  */
 export function parseArticleHtml(html, { url, finalUrl = url }) {
   const { document } = new JSDOM(html, { url: finalUrl, virtualConsole: quietConsole }).window;
-  const providerHints = providerHintsOf(document); // Readability 會改動 document，要先抓
+  // Readability 會改動 document，主辦單位線索與整頁文字要先抓
+  const providerHints = providerHintsOf(document);
+  const pageText = readablePageMarkdown(document);
   const article = new Readability(document).parse();
-  const text = article ? htmlToMarkdown(article.content) : "";
-  if (!article || text.trim().length < MIN_READABLE_TEXT_LENGTH) return null;
+  const extracted = article ? htmlToMarkdown(article.content) : "";
+  if (!article || extracted.trim().length < MIN_READABLE_TEXT_LENGTH) return null;
+  const text = visibleLength(extracted) < visibleLength(pageText) * FULL_PAGE_RATIO ? pageText : extracted;
   return {
     providerHints,
     title: article.title || "",

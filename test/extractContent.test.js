@@ -119,3 +119,36 @@ test("provider hints come from the header logo alt, og:site_name and copyright l
 test("no provider clues gives an empty hint list", () => {
   assert.deepEqual(parseArticleHtml(articlePage(), { url: "https://a.com/p" }).providerHints, []);
 });
+
+test("when Readability grabs only a small block, the whole readable page is used", () => {
+  // 仿大榮旅遊行程頁：售價、航班、每日行程都是零碎的 <span>，Readability 只挑中「注意事項」那段長文。
+  const days = Array.from({ length: 5 }, (_, i) =>
+    `<div><div><span>第 ${i + 1} 天</span></div><div><span>行程</span><span>登別地獄谷／洞爺湖畔散策／小樽運河自由散策</span></div>` +
+    `<div><span>餐食</span><span>早餐：飯店內 午餐：日式壽喜燒</span></div><div><span>住宿</span><span>登別石水亭(或)同級</span></div></div>`
+  ).join("");
+  const html = `<!doctype html><html><head><title>北海道五日</title></head><body>
+    <nav><a href="/">首頁</a><a href="/group">團體旅遊</a></nav>
+    <div><span>售價</span><span>NT$37,900 起</span></div><div><span>去程</span><span>長榮航空 BR116</span></div>
+    <div>${days}</div>
+    <div><h2>注意事項</h2><p>${"團體機票不能延回也不能退票，護照效期需六個月以上。".repeat(6)}</p><p>${"導遊司機小費每人每日新台幣三百元另付，十六人才成團。".repeat(6)}</p></div>
+    <footer><a href="/about">關於我們</a></footer>
+  </body></html>`;
+
+  const source = parseArticleHtml(html, { url: "https://a.com/group/X" });
+
+  assert.match(source.text, /第 3 天/);
+  assert.match(source.text, /NT\$37,900 起/);
+  assert.match(source.text, /BR116/);
+  assert.match(source.text, /團體機票不能延回/);
+  assert.doesNotMatch(source.text, /關於我們/);
+  assert.doesNotMatch(source.text, /團體旅遊/);
+});
+
+test("a normal article keeps Readability's extract and leaves the sidebar out", () => {
+  const html = articlePage({
+    footer: `<aside><h3>推薦文章</h3><ul><li><a href="/x">別篇文章標題</a></li></ul></aside>`,
+  });
+  const source = parseArticleHtml(html, { url: "https://a.com/post/1" });
+  assert.match(source.text, /這是正文段落/);
+  assert.doesNotMatch(source.text, /別篇文章標題/);
+});
