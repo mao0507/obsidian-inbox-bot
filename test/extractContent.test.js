@@ -173,3 +173,36 @@ test("an image sitting next to paragraphs is kept", () => {
   const md = htmlToMarkdown(`<div><p>上一段</p><img src="https://a.com/shot.png" alt="截圖"><p>下一段</p></div>`);
   assert.match(md, /!\[截圖\]\(https:\/\/a\.com\/shot\.png\)/);
 });
+
+test("redirected to the home page counts as the wrong page", () => {
+  const source = parseArticleHtml(articlePage(), {
+    url: "https://ai-chain.tw/blog/codeburn-ai-coding-cost-dashboard/",
+    finalUrl: "https://ai-chain.tw/",
+  });
+  assert.match(source.wrongPage, /首頁/);
+});
+
+test("an article that is itself the home page is not the wrong page", () => {
+  assert.equal(parseArticleHtml(articlePage(), { url: "https://a.com/", finalUrl: "https://a.com/" }).wrongPage, undefined);
+});
+
+test("wrong page from both fetchers is reported as wrong_page, not merged into a generic error", async () => {
+  const wrong = (url) => ({ url, ok: false, errorKind: "wrong_page", error: "被導向網站首頁" });
+  const fetcher = createWebFetcher({ fetchStatic: async (u) => wrong(u), fetchBrowser: async (u) => wrong(u) });
+  const out = await fetcher.fetch("https://a.com/post/1");
+  assert.equal(out.ok, false);
+  assert.equal(out.errorKind, "wrong_page");
+});
+
+test("an article URL that serves the home page (canonical points to /) counts as the wrong page", () => {
+  const source = parseArticleHtml(articlePage({ head: `<link rel="canonical" href="https://ai-chain.tw/">` }), {
+    url: "https://ai-chain.tw/blog/codeburn-ai-coding-cost-dashboard/",
+  });
+  assert.match(source.wrongPage, /首頁/);
+});
+
+test("a malformed canonical link does not break parsing", () => {
+  const source = parseArticleHtml(articlePage({ head: `<link rel="canonical" href="http://[bad">` }), { url: "https://a.com/post/1" });
+  assert.equal(source.wrongPage, undefined);
+  assert.match(source.text, /這是正文段落/);
+});

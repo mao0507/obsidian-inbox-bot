@@ -497,3 +497,14 @@ test("provider: empty provider is not written to frontmatter", async () => {
   const out = await pipeline.processIncomingContent("記一下 docker healthcheck", "telegram");
   assert.equal("provider" in vault.readNote(out.result.relativePath).frontmatter, false);
 });
+
+test("wrong page: nothing is saved, AI is not called, and the user is told to paste the text", async () => {
+  const url = "https://ai-chain.tw/blog/codeburn";
+  const { vault, calls, pipeline } = setup({
+    fetched: { [url]: { url, ok: false, errorKind: "wrong_page", error: "被導向網站首頁" } },
+  });
+
+  await assert.rejects(pipeline.processIncomingContent(url, "telegram"), /抓錯頁面.*貼/);
+  assert.equal(calls.askJson.length, 0);
+  assert.equal(vault.listNotes().length, 0);
+});

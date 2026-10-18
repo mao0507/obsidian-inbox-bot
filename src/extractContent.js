@@ -92,6 +92,27 @@ const FULL_PAGE_RATIO = 0.6;
 const PAGE_NOISE = "nav, header, footer, aside, script, style, noscript, form";
 const visibleLength = (text) => text.replace(/\s+/g, "").length;
 
+// 文章網址被導向網站首頁（文章下架、改網址、要登入）時，抓到的是首頁行銷文案，不能當原文。
+// 有些 SPA 不做 HTTP 導向、直接在文章網址吐首頁（例如 ai-chain.tw），這時看 canonical / og:url 是不是首頁。
+// ponytail: 只抓「首頁」這種明確情況；標題跟網址對不上的模糊判斷沒做，遇到實例再加。
+const pathOf = (u, base) => {
+  try {
+    return new URL(u, base).pathname.replace(/\/+$/, "");
+  } catch {
+    return null; // 網址格式壞掉：無法判斷，不當成首頁
+  }
+};
+
+function wrongPageReason(url, finalUrl, document) {
+  if (!pathOf(url)) return undefined; // 本來就丟首頁（或網址壞掉）
+  if (pathOf(finalUrl) === "") return `被導向網站首頁（${finalUrl}），抓到的不是文章本身`;
+  const canonical =
+    document.querySelector('link[rel="canonical"]')?.getAttribute("href") ||
+    document.querySelector('meta[property="og:url"]')?.getAttribute("content");
+  if (canonical && pathOf(canonical, finalUrl) === "") return `這個網址顯示的是網站首頁（${canonical}），抓到的不是文章本身`;
+  return undefined;
+}
+
 function readablePageMarkdown(document) {
   const body = document.body.cloneNode(true);
   body.querySelectorAll(PAGE_NOISE).forEach((el) => el.remove());
@@ -105,6 +126,8 @@ function readablePageMarkdown(document) {
  */
 export function parseArticleHtml(html, { url, finalUrl = url }) {
   const { document } = new JSDOM(html, { url: finalUrl, virtualConsole: quietConsole }).window;
+  const wrongPage = wrongPageReason(url, finalUrl, document);
+  if (wrongPage) return { wrongPage };
   // Readability 會改動 document，主辦單位線索與整頁文字要先抓
   const providerHints = providerHintsOf(document);
   const pageText = readablePageMarkdown(document);
@@ -141,6 +164,7 @@ async function fetchViaFetch(url) {
     }
     const html = await res.text();
     const article = parseArticleHtml(html, { url, finalUrl: res.url || url });
+    if (article?.wrongPage) return { url, ok: false, errorKind: "wrong_page", error: article.wrongPage };
     if (article) return { url, ok: true, ...article };
 
     // Readability 抓不到夠長的正文：常見於 Threads、X（Twitter）、Instagram 這類短文社群貼文，
@@ -227,6 +251,7 @@ async function fetchViaBrowser(url) {
     }
 
     const article = parseArticleHtml(html, { url, finalUrl });
+    if (article?.wrongPage) return { url, ok: false, errorKind: "wrong_page", error: article.wrongPage };
     if (article) return { url, ok: true, ...article, title: article.title || title };
 
     const cleaned = innerText.replace(/\n{3,}/g, "\n\n").trim();
@@ -278,6 +303,8 @@ export function createWebFetcher({ fetchStatic = fetchViaFetch, fetchBrowser = f
       const second = await fetchBrowser(url);
       if (second.ok && (!first.ok || second.text.length > first.text.length)) return second;
       if (first.ok) return first;
+      // 兩邊都被導向首頁：保留錯誤種類，流程端才知道要請使用者貼原文，而不是照樣存一篇
+      if (first.errorKind === "wrong_page" && second.errorKind === "wrong_page") return first;
       return { url, ok: false, error: `一般抓取：${first.error}；瀏覽器抓取：${second.error}` };
     },
   };

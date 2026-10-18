@@ -234,6 +234,11 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
       if (duplicatePath) return { duplicate: true, duplicatePath, urls };
 
       const fetched = await fetchAll(urls);
+      // 抓到的是首頁之類的別頁：存下來只會是一篇沒內容的筆記，直接請使用者貼原文
+      const wrongPage = fetched.find((f) => f.errorKind === "wrong_page");
+      if (wrongPage) {
+        throw new Error(`抓錯頁面：${wrongPage.url} ${wrongPage.error}。沒有存成筆記，請直接貼上文章內容再傳一次`);
+      }
       const saved = await draftAndSave({ rawText: text, fetched, sources: urls, sourceChannel, type: noteTypeOf(fetched, urls) });
       // 抓不到的網址照樣建立筆記（只靠網址與使用者留言整理），但要讓使用者知道原因
       return { ...saved, fetchErrors: fetchErrorsOf(fetched) };
