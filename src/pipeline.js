@@ -4,6 +4,7 @@ import { findDuplicateNote, normalizeUrl } from "./duplicateCheck.js";
 import { syncRelatedNotes, relatedSectionOf } from "./relatedNotes.js";
 import { syncMocForFolder } from "./mocSync.js";
 import { createNoteDrafter } from "./noteDrafter.js";
+import { appendOtherSources } from "./noteStore.js";
 import { buildSystemPrompt, buildUserPrompt } from "./promptBuilder.js";
 import { describeExistingFolders } from "./vaultScan.js";
 import { TAXONOMY, INBOX_FALLBACK, buildFolder } from "./taxonomy.js";
@@ -241,7 +242,13 @@ export function createPipeline({ vault, ai, fetcher, notebook, git }) {
         throw new Error(`內容太短（少於 ${MIN_TEXT_CHARS} 個字又沒有網址），沒有存成筆記。想記下來請多寫一點`);
       }
       const duplicatePath = urls.length ? findDuplicateNote(vault, urls) : null;
-      if (duplicatePath) return { duplicate: true, duplicatePath, urls };
+      if (duplicatePath) {
+        // 同一個商品的另一個網址（例如同一團的其他出發日期）：記進舊筆記，內容不重寫
+        const known = vault.readNote(duplicatePath).sources.map(normalizeUrl);
+        const recordedUrls = urls.filter((u) => !known.includes(normalizeUrl(u)));
+        if (recordedUrls.length) vault.updateNote(duplicatePath, (content) => appendOtherSources(content, recordedUrls));
+        return { duplicate: true, duplicatePath, urls, recordedUrls };
+      }
 
       const fetched = await fetchAll(urls);
       // 抓到的是首頁之類的別頁：存下來只會是一篇沒內容的筆記，直接請使用者貼原文

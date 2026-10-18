@@ -564,3 +564,48 @@ test("my note: /rebuild keeps the note block written when the note was first sav
   assert.match(body, /> \[!note\] 我的備註\n> 想帶爸媽去/);
   assert.ok(body.indexOf("我的備註") < body.indexOf("TL;DR"));
 });
+
+test("same tour, another departure: listed domain URL one segment deeper is a duplicate and gets recorded", async () => {
+  const { vault, calls, pipeline } = setup();
+  const notePath = vault.writeNote({
+    ...draft, folder: "旅遊/日本/北海道", body: "內文", sources: ["https://www.dtsgroup.com.tw/group/DTS26-SPK059"], sourceChannel: "telegram",
+  }).relativePath;
+  const deeper = "https://www.dtsgroup.com.tw/group/DTS26-SPK059/DTS26B08HBR1";
+
+  const out = await pipeline.processIncomingContent(deeper, "telegram");
+  await pipeline.processIncomingContent(deeper, "telegram"); // 再丟一次不會重複記
+
+  assert.equal(out.duplicate, true);
+  assert.equal(out.duplicatePath, notePath);
+  assert.deepEqual(out.recordedUrls, [deeper]);
+  assert.deepEqual(vault.readNote(notePath).sources, ["https://www.dtsgroup.com.tw/group/DTS26-SPK059", deeper]);
+  assert.equal(vault.listNotes().length, 1);
+  assert.equal(calls.askJson.length, 0);
+});
+
+test("same tour: the shorter URL arriving after the deeper one is also a duplicate", async () => {
+  const { vault, pipeline } = setup();
+  const notePath = vault.writeNote({
+    ...draft, folder: "旅遊/日本/北海道", body: "內文", sources: ["https://www.dtsgroup.com.tw/group/A/B1"], sourceChannel: "telegram",
+  }).relativePath;
+  const out = await pipeline.processIncomingContent("https://www.dtsgroup.com.tw/group/A", "telegram");
+  assert.equal(out.duplicatePath, notePath);
+  assert.deepEqual(vault.readNote(notePath).sources, ["https://www.dtsgroup.com.tw/group/A/B1", "https://www.dtsgroup.com.tw/group/A"]);
+});
+
+test("same parent path on an unlisted domain is not a duplicate", async () => {
+  const { vault, pipeline } = setup();
+  vault.writeNote({ ...draft, folder: "技術/DevOps與部署/Docker", body: "內文", sources: ["https://blog.com/vue"], sourceChannel: "telegram" });
+  const out = await pipeline.processIncomingContent("https://blog.com/vue/composables", "telegram");
+  assert.notEqual(out.duplicate, true);
+});
+
+test("same tour: a new departure is appended when other_sources already exists", async () => {
+  const { vault, pipeline } = setup();
+  const base = "https://www.dtsgroup.com.tw/group/A";
+  const notePath = vault.writeNote({
+    ...draft, folder: "旅遊/日本/北海道", body: "內文", sources: [base, `${base}/B1`], sourceChannel: "telegram",
+  }).relativePath;
+  await pipeline.processIncomingContent(`${base}/B2`, "telegram");
+  assert.deepEqual(vault.readNote(notePath).sources, [base, `${base}/B1`, `${base}/B2`]);
+});

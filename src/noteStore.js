@@ -195,6 +195,15 @@ export function mapFrontmatterList(content, key, fn) {
   return updated === fm[0] ? content : updated + content.slice(fm[0].length);
 }
 
+/** 把網址加進 frontmatter 的 other_sources（沒有這個欄位就接在 source 後面新開），只動 frontmatter。 */
+export function appendOtherSources(content, urls) {
+  if (/^other_sources:/m.test(content.match(/^---\r?\n[\s\S]*?\r?\n---/)?.[0] || "")) {
+    return mapFrontmatterList(content, "other_sources", (old) => [...old, ...urls]);
+  }
+  const items = urls.map((u) => `  - ${yamlEscape(u)}`).join("\n");
+  return content.replace(/^(source: .*)$/m, `$1\nother_sources:\n${items}`);
+}
+
 function renderNoteFile(note) {
   return `${serializeFrontmatter(note)}\n\n# ${note.title}\n\n${String(note.body).trim()}\n`;
 }

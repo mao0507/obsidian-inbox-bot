@@ -395,7 +395,9 @@ export function startBot() {
           ? [
               "📎 這篇文章已經存過了，沒有建立新筆記。",
               `既有筆記：${outcome.duplicatePath}`,
-              "如果確定要重複建立，把連結後面加個字或不同網址再丟一次即可。",
+              ...(outcome.recordedUrls?.length
+                ? ["已存在，已把新網址記進那篇筆記的其他來源；想更新內容的話回覆那篇的訊息用 /rebuild。"]
+                : ["如果確定要重複建立，把連結後面加個字或不同網址再丟一次即可。"]),
             ].join("\n")
           : formatSavedReply("✅ 已存進 Obsidian", outcome),
       failPrefix: "❌ 處理失敗",

@@ -44,9 +44,25 @@ export function normalizeUrl(raw) {
  */
 export function findDuplicateNote(vault, urls) {
   if (!urls || urls.length === 0) return null;
-  const normalizedTargets = new Set(urls.map(normalizeUrl).filter(Boolean));
-  if (normalizedTargets.size === 0) return null;
+  const targets = urls.map(normalizeUrl).filter(Boolean);
+  if (targets.length === 0) return null;
 
-  const hit = vault.listNotes().find((note) => note.sources.some((s) => normalizedTargets.has(normalizeUrl(s))));
+  const hit = vault.listNotes().find((note) => note.sources.some((s) => targets.some((t) => sameItem(normalizeUrl(s), t))));
   return hit ? hit.path : null;
+}
+
+// 這些網站的網址最後一段是「同一個商品的不同場次」（例如旅行團的出發日期代碼），
+// 只差最後一段就算同一篇。只對列出的網域這樣判斷：部落格的 /blog/vue 跟 /blog/vue/xxx 是不同文章。
+const SAME_ITEM_DOMAINS = ["dtsgroup.com.tw"];
+
+function sameItem(a, b) {
+  if (a === b) return true;
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  if (!long.startsWith(`${short}/`) || long.slice(short.length + 1).includes("/")) return false;
+  try {
+    const host = new URL(short).hostname;
+    return SAME_ITEM_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch {
+    return false;
+  }
 }
